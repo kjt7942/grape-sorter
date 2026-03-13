@@ -9,7 +9,7 @@ echo "=== 스마트 포도 선별기 Kiosk 환경 설정을 시작합니다 ==="
 # 1. 필수 의존성 패키지 설치
 echo "[1/4] X11 및 파이썬 필수 패키지 설치 중..."
 sudo apt update
-sudo apt install -y xinit x11-xserver-utils python3-tk python3-serial git unclutter
+sudo apt install -y xinit x11-xserver-utils python3-tk python3-pyqt5 python3-serial git unclutter
 
 # 2. X 환경 설정 파일 생성 (.xinitrc)
 echo "[2/4] X 서버 시작 스크립트(.xinitrc) 작성 중..."

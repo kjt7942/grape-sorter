@@ -217,7 +217,7 @@ class MainApp(SmartSorterUI):
 
     def start_operation(self):
         self.is_running = True
-        self.combo_val.setText("조합 탐색 재개")
+        self.combo_val.setText("동작재개")
         self.combo_card.setStyleSheet(self.get_combo_card_style(highlight=False))
         # 토글 표시
         self.btn_run.hide()
@@ -225,7 +225,7 @@ class MainApp(SmartSorterUI):
         
     def pause_operation(self):
         self.is_running = False
-        self.combo_val.setText("일시 중지됨")
+        self.combo_val.setText("일시정지")
         # 정지 시의 경고성 노란색 렌더링
         if self.is_dark_mode:
             self.combo_card.setStyleSheet("QFrame#ComboCard { border: 2px solid #D97706; background-color: #78350F; border-radius: 20px; }")
