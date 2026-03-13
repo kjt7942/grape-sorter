@@ -38,6 +38,8 @@ def check_ota_update():
 class SerialThread(QThread):
     # 시리얼로 수신한 12개 무게 배열 전달하는 PyQt 시그널
     data_received = pyqtSignal(list)
+    # 시뮬레이션 모드 여부 전달 시그널
+    is_simulation = pyqtSignal(bool)
 
     def __init__(self, ports=['/dev/ttyACM0', '/dev/ttyUSB0', 'COM3', 'COM4', 'COM5'], baudrate=115200):
         super().__init__()
@@ -58,6 +60,9 @@ class SerialThread(QThread):
                 
         if not self.serial_port:
             print("경고: 아두이노 장치를 찾을 수 없습니다. 시뮬레이션 모드로 동작합니다.")
+            self.is_simulation.emit(True)
+        else:
+            self.is_simulation.emit(False)
         
         buffer = ""
         while self.running:
@@ -140,6 +145,7 @@ class MainApp(SmartSorterUI):
         # 아두이노 시리얼 통신 백그라운드 스레드 시작
         self.serial_thread = SerialThread()
         self.serial_thread.data_received.connect(self.on_data_received)
+        self.serial_thread.is_simulation.connect(lambda is_sim: self.lbl_sim_mode.setVisible(is_sim))
         self.serial_thread.start()
 
     def setup_logic(self):
@@ -322,12 +328,17 @@ class MainApp(SmartSorterUI):
 
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    
-    # 폰트 등 설정 (main_ui의 셋업을 일부 차용하여 안티앨리어싱 유지)
+    from PyQt5.QtWidgets import QApplication
     from PyQt5.QtGui import QFontDatabase, QFont
     from PyQt5.QtCore import Qt
     
+    # GUI 속성은 QApplication 생성 전에 설정해야 함
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    
+    app = QApplication(sys.argv)
+    
+    # 폰트 등 설정 (main_ui의 셋업을 일부 차용하여 안티앨리어싱 유지)
     font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "NanumBarunGothic.ttf")
     if os.path.exists(font_path):
         font_id = QFontDatabase.addApplicationFont(font_path)
@@ -339,9 +350,8 @@ if __name__ == "__main__":
                 default_font.setFamily(ui_font_family)
                 default_font.setStyleStrategy(QFont.PreferAntialias)
                 app.setFont(default_font)
-    
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+
+
     
     # Github OTA 점검
     check_ota_update()

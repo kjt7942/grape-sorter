@@ -16,6 +16,7 @@ class SmartSorterUI(QMainWindow):
         QLabel#SumValue { color: #1F2937; }
         QLabel#ComboTitle { color: #065F46; }
         QLabel#ComboValue { color: #047857; }
+        QLabel#SimMode { color: #EF4444; font-weight: bold; background-color: #FEE2E2; border-radius: 8px; padding: 5px; }
         
         QFrame#Card {
             background-color: #FFFFFF;
@@ -73,6 +74,7 @@ class SmartSorterUI(QMainWindow):
         QLabel#SumValue { color: #F87171; }
         QLabel#ComboTitle { color: #6EE7B7; }
         QLabel#ComboValue { color: #A7F3D0; }
+        QLabel#SimMode { color: #F87171; font-weight: bold; background-color: #451A1A; border-radius: 8px; padding: 5px; }
         
         QFrame#Card {
             background-color: #1E1E1E;
@@ -146,6 +148,14 @@ class SmartSorterUI(QMainWindow):
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(20)
+
+        # 시뮬레이션 모드 표시 라벨
+        self.lbl_sim_mode = QLabel("⚠️ 시뮬레이션 모드 (아두이노 미연결)")
+        self.lbl_sim_mode.setObjectName("SimMode")
+        self.lbl_sim_mode.setFont(QFont(UI_FONT_FAMILY, 14))
+        self.lbl_sim_mode.setAlignment(Qt.AlignCenter)
+        self.lbl_sim_mode.hide() # 기본은 숨김
+        left_layout.addWidget(self.lbl_sim_mode)
 
         grid_layout = QGridLayout()
         grid_layout.setSpacing(20)
