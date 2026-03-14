@@ -1,8 +1,14 @@
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QGridLayout, QLabel, QPushButton, QFrame, QSizePolicy, QGraphicsDropShadowEffect)
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont, QColor
+
+class ClickableFrame(QFrame):
+    doubleClicked = pyqtSignal()
+    def mouseDoubleClickEvent(self, event):
+        self.doubleClicked.emit()
+        super().mouseDoubleClickEvent(event)
 
 UI_FONT_FAMILY = "NanumBarunGothic"
 import os
@@ -283,7 +289,7 @@ class SmartSorterUI(QMainWindow):
         main_layout.addWidget(right_panel, 8)
 
     def create_loadcell_card(self, num_str, weight):
-        card = QFrame()
+        card = ClickableFrame()
         card.setObjectName("Card")
         card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         card.setMinimumHeight(50)

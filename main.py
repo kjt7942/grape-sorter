@@ -142,6 +142,9 @@ class MainApp(SmartSorterUI):
         
         self.setup_logic()
         
+        # 히든 기능: 1번 저울 카드 더블클릭 시 프로그램 종료 (별도 표시 없음)
+        self.tray_cards[0].doubleClicked.connect(QApplication.instance().quit)
+        
         # 아두이노 시리얼 통신 백그라운드 스레드 시작
         self.serial_thread = SerialThread()
         self.serial_thread.data_received.connect(self.on_data_received)
