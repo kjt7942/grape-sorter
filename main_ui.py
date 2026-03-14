@@ -128,7 +128,7 @@ class SmartSorterUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("스마트 포도 선별기")
-        self.resize(1280, 800)
+        self.setFixedSize(800, 480)
         self.is_dark_mode = True  # 앱 실행 시 기본 다크 모드 적용
         self.combo_shadow = QGraphicsDropShadowEffect(self)
         self.initUI()
@@ -138,8 +138,8 @@ class SmartSorterUI(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
-        main_layout.setContentsMargins(30, 30, 30, 30)
-        main_layout.setSpacing(30)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
 
         # -------------------------------------------------------------
         # 왼쪽 패널 (저울 데이터 모니터링 영역)
@@ -147,18 +147,18 @@ class SmartSorterUI(QMainWindow):
         left_panel = QFrame()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(20)
+        left_layout.setSpacing(10)
 
-        # 시뮬레이션 모드 표시 라벨
+        # 시뮬레이션 모드 표시 라벨 (레이아웃에서 제거, 합계 부분으로 이동 예정)
         self.lbl_sim_mode = QLabel("⚠️ 시뮬레이션 모드 (아두이노 미연결)")
         self.lbl_sim_mode.setObjectName("SimMode")
         self.lbl_sim_mode.setFont(QFont(UI_FONT_FAMILY, 14))
         self.lbl_sim_mode.setAlignment(Qt.AlignCenter)
         self.lbl_sim_mode.hide() # 기본은 숨김
-        left_layout.addWidget(self.lbl_sim_mode)
+        # left_layout.addWidget(self.lbl_sim_mode)
 
         grid_layout = QGridLayout()
-        grid_layout.setSpacing(20)
+        grid_layout.setSpacing(10)
         
         weights = [725, 670, 725, 820, 595, 620, 910, 680, 825, 710, 820, 745]
         label_numbers = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫']
@@ -178,16 +178,16 @@ class SmartSorterUI(QMainWindow):
         sum_card = QFrame()
         sum_card.setObjectName("Card")
         sum_layout = QHBoxLayout(sum_card)
-        sum_layout.setContentsMargins(30, 25, 30, 25)
+        sum_layout.setContentsMargins(15, 10, 15, 10)
         
-        sum_lbl = QLabel("합계")
-        sum_lbl.setFont(QFont(UI_FONT_FAMILY, 26, QFont.Bold))
+        self.lbl_sum_title = QLabel("합계")
+        self.lbl_sum_title.setFont(QFont(UI_FONT_FAMILY, 18, QFont.Bold))
         self.sum_val_lbl = QLabel("8,845 g")
         self.sum_val_lbl.setObjectName("SumValue")
-        self.sum_val_lbl.setFont(QFont(UI_FONT_FAMILY, 28, QFont.Bold))
+        self.sum_val_lbl.setFont(QFont(UI_FONT_FAMILY, 20, QFont.Bold))
         self.sum_val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         
-        sum_layout.addWidget(sum_lbl)
+        sum_layout.addWidget(self.lbl_sum_title)
         sum_layout.addWidget(self.sum_val_lbl)
         left_layout.addWidget(sum_card)
 
@@ -197,19 +197,10 @@ class SmartSorterUI(QMainWindow):
         right_panel = QFrame()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(25)
-
-        # 상단 테마 전환 버튼 (우측 정렬)
-        top_btn_layout = QHBoxLayout()
-        top_btn_layout.addStretch()
-        self.btn_theme_toggle = QPushButton("🌙 다크 모드")
-        self.btn_theme_toggle.setObjectName("ThemeBtn")
-        self.btn_theme_toggle.setFont(QFont(UI_FONT_FAMILY, 14, QFont.Bold))
-        self.btn_theme_toggle.setFixedSize(220, 50)
-        self.btn_theme_toggle.clicked.connect(self.toggle_theme)
-        top_btn_layout.addWidget(self.btn_theme_toggle)
+        right_layout.setSpacing(10) # 왼쪽 그리드 간격(10px)과 동일하게 설정
         
-        right_layout.addLayout(top_btn_layout)
+        # 상단 stretch 제거 (왼쪽 첫 번째 칸과 수평을 맞추기 위함)
+
 
         # 설정 항목들
         self.setting_product = self.create_setting_row("제품명", "포도 2KG")
@@ -217,82 +208,95 @@ class SmartSorterUI(QMainWindow):
         self.setting_min = self.create_setting_row("최소조합개수", "3")
         self.setting_max = self.create_setting_row("최대조합개수", "4")
 
-        right_layout.addWidget(self.setting_product)
-        right_layout.addWidget(self.setting_target)
-        right_layout.addWidget(self.setting_min)
-        right_layout.addWidget(self.setting_max)
+        right_layout.addWidget(self.setting_product) # 좌측 1번과 수평 맞춤
+        right_layout.addWidget(self.setting_target)  # 좌측 2번과 수평 맞춤
+        right_layout.addWidget(self.setting_min)     # 좌측 3번과 수평 맞춤
+        right_layout.addWidget(self.setting_max)     # 좌측 4번과 수평 맞춤
+        
+        # 좌측 5, 6번 저울에 해당하는 빈 공간을 확보하여 높이 일치시킴
+        right_layout.addStretch(2) 
+        
+        right_layout.addSpacing(1) # 조합무게 카드 전 여백 조금 더 부여
 
-        right_layout.addStretch()
-
-        # 조합결과 하이라이트 카드
         self.combo_card = QFrame()
         self.combo_card.setObjectName("ComboCard")
+        self.combo_card.setMinimumHeight(100) # 높이를 100으로 키워 공간 채움
+
         
         self.combo_shadow.setBlurRadius(20)
         self.combo_shadow.setOffset(0, 4)
         self.combo_card.setGraphicsEffect(self.combo_shadow)
 
         combo_layout = QHBoxLayout(self.combo_card)
-        combo_layout.setContentsMargins(40, 50, 40, 50)
+        combo_layout.setContentsMargins(25, 20, 25, 20) # 여백을 다시 키워 박스 볼륨감 확보
         
         combo_title = QLabel("조합무게")
         combo_title.setObjectName("ComboTitle")
-        combo_title.setFont(QFont(UI_FONT_FAMILY, 28, QFont.Bold))
+        combo_title.setFont(QFont(UI_FONT_FAMILY, 18, QFont.Bold)) # 폰트 크기 복원
         
         self.combo_val = QLabel("2,050 g")
         self.combo_val.setObjectName("ComboValue")
-        self.combo_val.setFont(QFont(UI_FONT_FAMILY, 48, QFont.Bold))
+        self.combo_val.setFont(QFont(UI_FONT_FAMILY, 36, QFont.Bold)) # 결과값 폰트 대폭 확대
         self.combo_val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         
         combo_layout.addWidget(combo_title)
         combo_layout.addWidget(self.combo_val)
         
         right_layout.addWidget(self.combo_card)
-        right_layout.addStretch()
+        right_layout.addStretch(1) # 하단 버튼부와의 간격을 위한 여백 가중치 조절
+
 
         # 조작 버튼 세트
         btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(15)
+        btn_layout.setSpacing(10)
         
         self.btn_pause = QPushButton("일시정지")
-        self.btn_pause.setFont(QFont(UI_FONT_FAMILY, 22, QFont.Bold))
+        self.btn_pause.setFont(QFont(UI_FONT_FAMILY, 14, QFont.Bold))
         self.btn_pause.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        self.btn_pause.setMinimumHeight(90)
+        self.btn_pause.setMinimumHeight(55)
         
         self.btn_run = QPushButton("동작")
         self.btn_run.setObjectName("ActionBtn") 
-        self.btn_run.setFont(QFont(UI_FONT_FAMILY, 22, QFont.Bold))
+        self.btn_run.setFont(QFont(UI_FONT_FAMILY, 14, QFont.Bold))
         self.btn_run.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        self.btn_run.setMinimumHeight(90)
+        self.btn_run.setMinimumHeight(55)
         
         self.btn_register = QPushButton("제품등록")
-        self.btn_register.setFont(QFont(UI_FONT_FAMILY, 22, QFont.Bold))
+        self.btn_register.setFont(QFont(UI_FONT_FAMILY, 14, QFont.Bold))
         self.btn_register.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        self.btn_register.setMinimumHeight(90)
+        self.btn_register.setMinimumHeight(55)
+
+        self.btn_theme_toggle = QPushButton("☀️") 
+        self.btn_theme_toggle.setObjectName("ThemeBtn")
+        self.btn_theme_toggle.setFont(QFont(UI_FONT_FAMILY, 18))
+        self.btn_theme_toggle.setFixedSize(60, 55)
+        self.btn_theme_toggle.clicked.connect(self.toggle_theme)
 
         btn_layout.addWidget(self.btn_pause)
         btn_layout.addWidget(self.btn_run)
         btn_layout.addWidget(self.btn_register)
+        btn_layout.addWidget(self.btn_theme_toggle)
         
         right_layout.addLayout(btn_layout)
 
-        main_layout.addWidget(left_panel, 13)
-        main_layout.addWidget(right_panel, 10)
+        main_layout.addWidget(left_panel, 10)
+        main_layout.addWidget(right_panel, 8)
 
     def create_loadcell_card(self, num_str, weight):
         card = QFrame()
         card.setObjectName("Card")
         card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        card.setMinimumHeight(80)
+        card.setMinimumHeight(50)
         layout = QHBoxLayout(card)
-        layout.setContentsMargins(25, 10, 25, 10)
+        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(5)
         
         lbl_num = QLabel(num_str)
         lbl_num.setObjectName("GreyText")
-        lbl_num.setFont(QFont(UI_FONT_FAMILY, 20))
+        lbl_num.setFont(QFont(UI_FONT_FAMILY, 14))
         
         lbl_weight = QLabel(weight)
-        lbl_weight.setFont(QFont(UI_FONT_FAMILY, 24, QFont.Bold))
+        lbl_weight.setFont(QFont(UI_FONT_FAMILY, 14, QFont.Bold))
         lbl_weight.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         
         layout.addWidget(lbl_num)
@@ -305,23 +309,24 @@ class SmartSorterUI(QMainWindow):
     def create_setting_row(self, label_text, value_text):
         row_widget = QFrame()
         row_widget.setObjectName("Card")
-        row_widget.setMinimumHeight(85)
+        row_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed) # 높이 고정으로 변경
+        row_widget.setFixedHeight(60) # 높이 60으로 명시적 고정
         
         layout = QHBoxLayout(row_widget)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(10, 5, 10, 5)
         layout.setSpacing(10)
         
         btn_minus = QPushButton("-")
         btn_minus.setObjectName("ControlBtn")
-        btn_minus.setFixedSize(65, 65)
+        btn_minus.setFixedSize(40, 40)
         
         lbl_center = QLabel(f"{label_text} : {value_text}")
-        lbl_center.setFont(QFont(UI_FONT_FAMILY, 20, QFont.Bold))
+        lbl_center.setFont(QFont(UI_FONT_FAMILY, 13, QFont.Bold))
         lbl_center.setAlignment(Qt.AlignCenter)
         
         btn_plus = QPushButton("+")
         btn_plus.setObjectName("ControlBtn")
-        btn_plus.setFixedSize(65, 65)
+        btn_plus.setFixedSize(40, 40)
         
         layout.addWidget(btn_minus)
         layout.addWidget(lbl_center, 1)
@@ -340,11 +345,11 @@ class SmartSorterUI(QMainWindow):
     def apply_theme(self):
         if self.is_dark_mode:
             self.setStyleSheet(self.DARK_THEME)
-            self.btn_theme_toggle.setText("☀️ 라이트 모드")
+            self.btn_theme_toggle.setText("☀️")
             self.combo_shadow.setColor(QColor(16, 185, 129, 80)) # Dark shadow color
         else:
             self.setStyleSheet(self.LIGHT_THEME)
-            self.btn_theme_toggle.setText("🌙 다크 모드")
+            self.btn_theme_toggle.setText("🌙")
             self.combo_shadow.setColor(QColor(16, 185, 129, 60)) # Light shadow color
 
 if __name__ == "__main__":

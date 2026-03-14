@@ -128,7 +128,7 @@ class MainApp(SmartSorterUI):
         super().__init__()
         # PC(Windows) 환경에서는 최대화 창, 라즈베리파이(Linux)는 풀스크린 적용
         if sys.platform == 'win32':
-            self.showMaximized()
+            self.showNormal()
         else:
             self.showFullScreen()
         
@@ -145,8 +145,16 @@ class MainApp(SmartSorterUI):
         # 아두이노 시리얼 통신 백그라운드 스레드 시작
         self.serial_thread = SerialThread()
         self.serial_thread.data_received.connect(self.on_data_received)
-        self.serial_thread.is_simulation.connect(lambda is_sim: self.lbl_sim_mode.setVisible(is_sim))
+        self.serial_thread.is_simulation.connect(self.update_sim_mode_display)
         self.serial_thread.start()
+
+    def update_sim_mode_display(self, is_sim):
+        if is_sim:
+            self.lbl_sum_title.setText("합계(시뮬모드)")
+            self.lbl_sum_title.setStyleSheet("color: #EF4444;" if not self.is_dark_mode else "color: #F87171;")
+        else:
+            self.lbl_sum_title.setText("합계")
+            self.lbl_sum_title.setStyleSheet("")
 
     def setup_logic(self):
         # UI 업데이트용 초기 텍스트 설정

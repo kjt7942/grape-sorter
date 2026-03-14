@@ -8,7 +8,7 @@ class SmartSorterUIDark(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("스마트 포도 선별기 (다크 모드)")
-        self.resize(1280, 800)
+        self.setFixedSize(800, 480)
         self.initUI()
         
     def initUI(self):
@@ -16,8 +16,8 @@ class SmartSorterUIDark(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
-        main_layout.setContentsMargins(30, 30, 30, 30)
-        main_layout.setSpacing(30)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
 
         # 전체 애플리케이션에 대한 스타일 (QSS) - 다크 모드 특화
         self.setStyleSheet("""
@@ -78,11 +78,11 @@ class SmartSorterUIDark(QMainWindow):
         left_panel = QFrame()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(20)
+        left_layout.setSpacing(10)
 
         # 12개의 로드셀(저울) 무게 패널 (6행 2열 배치)
         grid_layout = QGridLayout()
-        grid_layout.setSpacing(20)
+        grid_layout.setSpacing(10)
         
         # 샘플 무게 데이터
         weights = [725, 670, 725, 820, 595, 620, 910, 680, 825, 710, 820, 745]
@@ -100,12 +100,13 @@ class SmartSorterUIDark(QMainWindow):
         sum_card = QFrame()
         sum_card.setObjectName("Card")
         sum_layout = QHBoxLayout(sum_card)
-        sum_layout.setContentsMargins(30, 25, 30, 25)
+        sum_layout = QHBoxLayout(sum_card)
+        sum_layout.setContentsMargins(15, 10, 15, 10)
         
         sum_lbl = QLabel("합계")
-        sum_lbl.setFont(QFont("Malgun Gothic", 26, QFont.Bold))
+        sum_lbl.setFont(QFont("Malgun Gothic", 18, QFont.Bold))
         self.sum_val_lbl = QLabel("8,845 g")
-        self.sum_val_lbl.setFont(QFont("Malgun Gothic", 28, QFont.Bold))
+        self.sum_val_lbl.setFont(QFont("Malgun Gothic", 20, QFont.Bold))
         self.sum_val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.sum_val_lbl.setStyleSheet("color: #F87171;") # 포인트 컬러 (코랄 레드)
         
@@ -119,7 +120,7 @@ class SmartSorterUIDark(QMainWindow):
         right_panel = QFrame()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(25)
+        right_layout.setSpacing(10)
 
         # 1. 설정 항목들
         self.setting_product = self.create_setting_row("제품명", "포도 2KG")
@@ -156,11 +157,11 @@ class SmartSorterUIDark(QMainWindow):
         combo_layout.setContentsMargins(40, 50, 40, 50)
         
         combo_title = QLabel("조합무게")
-        combo_title.setFont(QFont("Malgun Gothic", 28, QFont.Bold))
+        combo_title.setFont(QFont("Malgun Gothic", 18, QFont.Bold))
         combo_title.setStyleSheet("color: #6EE7B7;") # 밝은 에메랄드
         
         self.combo_val = QLabel("2,050 g")
-        self.combo_val.setFont(QFont("Malgun Gothic", 48, QFont.Bold))
+        self.combo_val.setFont(QFont("Malgun Gothic", 24, QFont.Bold))
         self.combo_val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.combo_val.setStyleSheet("color: #A7F3D0;") # 매우 밝은 에메랄드
         
@@ -175,20 +176,20 @@ class SmartSorterUIDark(QMainWindow):
         btn_layout.setSpacing(15)
         
         btn_pause = QPushButton("일시정지")
-        btn_pause.setFont(QFont("Malgun Gothic", 22, QFont.Bold))
+        btn_pause.setFont(QFont("Malgun Gothic", 16, QFont.Bold))
         btn_pause.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        btn_pause.setMinimumHeight(90)
+        btn_pause.setMinimumHeight(60)
         
         btn_run = QPushButton("동작")
         btn_run.setObjectName("ActionBtn") 
-        btn_run.setFont(QFont("Malgun Gothic", 22, QFont.Bold))
+        btn_run.setFont(QFont("Malgun Gothic", 16, QFont.Bold))
         btn_run.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        btn_run.setMinimumHeight(90)
+        btn_run.setMinimumHeight(60)
         
         btn_register = QPushButton("제품등록")
-        btn_register.setFont(QFont("Malgun Gothic", 22, QFont.Bold))
+        btn_register.setFont(QFont("Malgun Gothic", 16, QFont.Bold))
         btn_register.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        btn_register.setMinimumHeight(90)
+        btn_register.setMinimumHeight(60)
 
         btn_layout.addWidget(btn_pause)
         btn_layout.addWidget(btn_run)
@@ -197,24 +198,25 @@ class SmartSorterUIDark(QMainWindow):
         right_layout.addLayout(btn_layout)
 
         # 좌/우 패널 레이아웃 비율 설정 (좌측 13, 우측 10 비율)
-        main_layout.addWidget(left_panel, 13)
-        main_layout.addWidget(right_panel, 10)
+        main_layout.addWidget(left_panel, 10)
+        main_layout.addWidget(right_panel, 8)
 
     def create_loadcell_card(self, num_str, weight):
         """1~12번까지 저울의 무게를 표시하는 다크모드 카드 위젯"""
         card = QFrame()
         card.setObjectName("Card")
         card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        card.setMinimumHeight(80)
+        card.setMinimumHeight(50)
         layout = QHBoxLayout(card)
-        layout.setContentsMargins(25, 10, 25, 10)
+        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(5)
         
         lbl_num = QLabel(num_str)
-        lbl_num.setFont(QFont("Malgun Gothic", 20))
+        lbl_num.setFont(QFont("Malgun Gothic", 14))
         lbl_num.setStyleSheet("color: #858585;") # 약간 어두운 회색
         
         lbl_weight = QLabel(weight)
-        lbl_weight.setFont(QFont("Malgun Gothic", 24, QFont.Bold))
+        lbl_weight.setFont(QFont("Malgun Gothic", 14, QFont.Bold))
         lbl_weight.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         lbl_weight.setStyleSheet("color: #E0E0E0;")
         
@@ -235,15 +237,15 @@ class SmartSorterUIDark(QMainWindow):
         
         btn_minus = QPushButton("-")
         btn_minus.setObjectName("ControlBtn")
-        btn_minus.setFixedSize(65, 65)
+        btn_minus.setFixedSize(45, 45)
         
         lbl_center = QLabel(f"{label_text} : {value_text}")
-        lbl_center.setFont(QFont("Malgun Gothic", 20, QFont.Bold))
+        lbl_center.setFont(QFont("Malgun Gothic", 14, QFont.Bold))
         lbl_center.setAlignment(Qt.AlignCenter)
         
         btn_plus = QPushButton("+")
         btn_plus.setObjectName("ControlBtn")
-        btn_plus.setFixedSize(65, 65)
+        btn_plus.setFixedSize(45, 45)
         
         layout.addWidget(btn_minus)
         layout.addWidget(lbl_center, 1) # 중앙 라벨이 빈 공간을 채우도록 stretch 적용
