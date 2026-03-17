@@ -84,37 +84,45 @@ class SerialThread(QThread):
                     print(f"시리얼 수신 스트림 오류: {e}")
                     time.sleep(1)
             else:
-                # 시뮬레이션 모드: 1초마다 랜덤 포도 무게 데이터 생성
+                # ✨ 업데이트 사항: 시뮬레이션 모드에서 랜덤 ERR(-1) 상황 가정 추가
                 fake_weights = []
                 for _ in range(12):
-                    if random.random() > 0.05: # 95% 확률로 포도가 트레이에 존재 (5% 빈 트레이)
+                    chance = random.random()
+                    if chance > 0.10: # 90% 확률로 정상 포도 무게
                         fake_weights.append(random.randint(450, 1100))
-                    else:
+                    elif chance > 0.02: # 8% 확률로 빈 트레이 (0g)
                         fake_weights.append(0)
+                    else: # 2% 확률로 센서 고장(ERR) 발생 -> 내부적으로 -1로 처리
+                        fake_weights.append(-1)
                         
                 self.data_received.emit(fake_weights)
                 time.sleep(1) # 눈으로 확인하기 용이하도록 1초 간격 갱신
 
     def parse_packet(self, packet):
-        try:
-            parts = packet.split(',')
-            if len(parts) == 12:
-                weights = [int(p) for p in parts]
-                self.data_received.emit(weights)
-        except ValueError:
-            pass
+        parts = packet.split(',')
+        if len(parts) == 12:
+            weights = []
+            for p in parts:
+                p = p.strip()
+                if p == "ERR":
+                    weights.append(-1) 
+                else:
+                    try:
+                        weights.append(int(p))
+                    except ValueError:
+                        weights.append(0) 
+            self.data_received.emit(weights)
 
     def send_signal(self, indices):
         """조합이 맞는 경우 해당 트레이 인덱스를 아두이노로 송신하여 LED 점등 요구"""
         if self.serial_port and self.serial_port.is_open:
-            # 포맷: [1,4,7]
-            msg = f"[{','.join(map(str, indices))}]\n"
+            msg = f"<{','.join(map(str, indices))}>\n"
             try:
                 self.serial_port.write(msg.encode('utf-8'))
             except Exception as e:
                 print(f"시리얼 데이터 송신 오류: {e}")
         else:
-            print(f"[시뮬레이션] LED 점등 대상 트레이: {indices}")
+            print(f"[시뮬레이션] LED 점등 대상 트레이: <{','.join(map(str, indices))}>")
 
     def stop(self):
         self.running = False
@@ -160,48 +168,34 @@ class MainApp(SmartSorterUI):
             self.lbl_sum_title.setStyleSheet("")
 
     def setup_logic(self):
-        # UI 업데이트용 초기 텍스트 설정
         self.update_setting_ui()
         
-        # --- 이벤트 바인딩 ---
-        
-        # 1. 동작 제어 버튼
         self.btn_pause.clicked.connect(self.pause_operation)
         self.btn_run.clicked.connect(self.start_operation)
-        self.btn_register.clicked.connect(self.dummy_register)
+        self.btn_register.clicked.connect(self.dummy_register) 
         
-        # 시작 시 동작 중이므로 '동작' 버튼은 숨기고 '일시정지'만 표시
         self.btn_run.hide()
 
-        # 2. 설정 값 증감 버튼 바인딩 (main_ui.py에서 할당해준 인스턴스 반영)
-        
-        # 목표 무게 (±10g 단위)
         self.setting_target.btn_minus.clicked.connect(lambda: self.change_setting('target', -10))
         self.setting_target.btn_plus.clicked.connect(lambda: self.change_setting('target', 10))
         
-        # 최소 조합 개수 (±1 단위)
         self.setting_min.btn_minus.clicked.connect(lambda: self.change_setting('min', -1))
         self.setting_min.btn_plus.clicked.connect(lambda: self.change_setting('min', 1))
         
-        # 최대 조합 개수 (±1 단위)
         self.setting_max.btn_minus.clicked.connect(lambda: self.change_setting('max', -1))
         self.setting_max.btn_plus.clicked.connect(lambda: self.change_setting('max', 1))
         
-        # 제품명 버튼은 증감없이 고정 (Hide)
         self.setting_product.btn_minus.hide()
         self.setting_product.btn_plus.hide()
         
-        # 테마 토글 시 콤보박스 색상을 재적용하기 위해 기존 테마 토글 함수를 확장 적용
         original_toggle_theme = self.toggle_theme
         def new_toggle_theme():
             original_toggle_theme()
-            # 테마 토글 시 콤보 카드도 테마에 맞게 색상 갱신
             self.combo_card.setStyleSheet(self.get_combo_card_style(highlight=(self.combo_val.text() != "조합실패" and self.is_running)))
-        self.btn_theme_toggle.clicked.disconnect() # 기존 바인딩 해제
+        self.btn_theme_toggle.clicked.disconnect() 
         self.btn_theme_toggle.clicked.connect(new_toggle_theme)
 
     def keyPressEvent(self, event):
-        # 풀스크린 토글 단축키 (F11, Esc 처리)
         if event.key() == Qt.Key_F11:
             if self.isFullScreen():
                 self.showNormal()
@@ -213,7 +207,7 @@ class MainApp(SmartSorterUI):
 
     def change_setting(self, kind, delta):
         if kind == 'target':
-            self.target_weight = max(100, self.target_weight + delta) # 최소 100g 이상
+            self.target_weight = max(100, self.target_weight + delta) 
         elif kind == 'min':
             self.min_comb = max(1, min(12, self.min_comb + delta))
             if self.min_comb > self.max_comb: self.max_comb = self.min_comb
@@ -236,19 +230,16 @@ class MainApp(SmartSorterUI):
         self.is_running = True
         self.combo_val.setText("동작재개")
         self.combo_card.setStyleSheet(self.get_combo_card_style(highlight=False))
-        # 토글 표시
         self.btn_run.hide()
         self.btn_pause.show()
         
     def pause_operation(self):
         self.is_running = False
         self.combo_val.setText("일시정지")
-        # 정지 시의 경고성 노란색 렌더링
         if self.is_dark_mode:
             self.combo_card.setStyleSheet("QFrame#ComboCard { border: 2px solid #D97706; background-color: #78350F; border-radius: 20px; }")
         else:
             self.combo_card.setStyleSheet("QFrame#ComboCard { border: 2px solid #F59E0B; background-color: #FEF3C7; border-radius: 20px; }")
-        # 토글 표시
         self.btn_pause.hide()
         self.btn_run.show()
 
@@ -272,21 +263,21 @@ class MainApp(SmartSorterUI):
             if w > 0:
                 self.tray_weight_labels[i].setText(f"{w:,} g")
                 self.tray_weight_labels[i].setStyleSheet("color: white;" if self.is_dark_mode else "color: #1F2937;")
-            else:
+                total += w
+            elif w == -1: 
+                self.tray_weight_labels[i].setText("에러(ERR)")
+                self.tray_weight_labels[i].setStyleSheet("color: #EF4444; font-weight: bold;") 
+            else: 
                 self.tray_weight_labels[i].setText(f"{w:,} g")
                 self.tray_weight_labels[i].setStyleSheet("color: #555555;" if self.is_dark_mode else "color: #9CA3AF;")
             
-            # 카드 배경 기본화 (다크/라이트 모드 분기)
             if self.is_dark_mode:
                 self.tray_cards[i].setStyleSheet("QFrame#Card { background-color: #1E1E1E; border-radius: 16px; border: 1px solid #333333; }")
             else:
                 self.tray_cards[i].setStyleSheet("QFrame#Card { background-color: #FFFFFF; border-radius: 16px; border: 1px solid #E5E7EB; }")
                 
-            total += w
-            
         self.sum_val_lbl.setText(f"{total:,} g")
         
-        # 동작 중일 때만 조합 탐색
         if self.is_running:
             self.find_best_combination()
 
@@ -306,8 +297,6 @@ class MainApp(SmartSorterUI):
                 combo_sum = sum(item[1] for item in combo)
                 diff = combo_sum - target
                 
-                # 조건: 조합 무게는 목표 무게 '이상'이어야 함 (0g 미만 오차 제외)
-                # 그 중 목표 무게에 가장 가까운 최저값(Upper bound 에러 한도: 100g)
                 if 0 <= diff <= 100:
                     if diff < best_diff:
                         best_diff = diff
@@ -320,7 +309,6 @@ class MainApp(SmartSorterUI):
             
             indices = [item[0] for item in best_combo]
             
-            # 하이라이트할 카드 UI 색상 업데이트
             for idx in indices:
                 card_index = idx - 1
                 if self.is_dark_mode:
@@ -332,6 +320,7 @@ class MainApp(SmartSorterUI):
         else:
             self.combo_val.setText("조합실패")
             self.combo_card.setStyleSheet(self.get_combo_card_style(highlight=False))
+            self.serial_thread.send_signal([])
 
     def closeEvent(self, event):
         self.serial_thread.stop()
@@ -343,13 +332,11 @@ if __name__ == "__main__":
     from PyQt5.QtGui import QFontDatabase, QFont
     from PyQt5.QtCore import Qt
     
-    # GUI 속성은 QApplication 생성 전에 설정해야 함
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     
     app = QApplication(sys.argv)
     
-    # 폰트 등 설정 (main_ui의 셋업을 일부 차용하여 안티앨리어싱 유지)
     font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "NanumBarunGothic.ttf")
     if os.path.exists(font_path):
         font_id = QFontDatabase.addApplicationFont(font_path)
@@ -362,9 +349,6 @@ if __name__ == "__main__":
                 default_font.setStyleStrategy(QFont.PreferAntialias)
                 app.setFont(default_font)
 
-
-    
-    # Github OTA 점검
     check_ota_update()
 
     window = MainApp()

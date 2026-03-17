@@ -2,17 +2,42 @@ import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QGridLayout, QLabel, QPushButton, QFrame, QSizePolicy, QGraphicsDropShadowEffect)
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QFont, QColor
-
-class ClickableFrame(QFrame):
-    doubleClicked = pyqtSignal()
-    def mouseDoubleClickEvent(self, event):
-        self.doubleClicked.emit()
-        super().mouseDoubleClickEvent(event)
+# ✨ 업데이트: 도화지에 그림을 그리기 위해 QPainter 추가
+from PyQt5.QtGui import QFont, QColor, QPainter
 
 UI_FONT_FAMILY = "NanumBarunGothic"
 import os
 from PyQt5.QtGui import QFontDatabase
+
+class ClickableFrame(QFrame):
+    doubleClicked = pyqtSignal()
+    
+    # ✨ 업데이트: 워터마크 텍스트를 저장할 변수 추가
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.watermark_text = ""
+
+    def mouseDoubleClickEvent(self, event):
+        self.doubleClicked.emit()
+        super().mouseDoubleClickEvent(event)
+        
+    # ✨ 핵심 업데이트: 기존 레이아웃은 그대로 두고, 그 밑바닥(배경)에 글씨를 그리는 기능
+    def paintEvent(self, event):
+        super().paintEvent(event) # 기본 배경색과 테두리 먼저 그리기
+        
+        if self.watermark_text:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.TextAntialiasing)
+            
+            # 은은한 워터마크 폰트 및 반투명 색상 설정 (알파값 70으로 매우 희미하게)
+            font = QFont(UI_FONT_FAMILY, 10, QFont.Bold)
+            painter.setFont(font)
+            painter.setPen(QColor(128, 128, 128, 70)) 
+            
+            # 카드 한가운데(정중앙)에 텍스트 각인
+            painter.drawText(self.rect(), Qt.AlignCenter, self.watermark_text)
+            painter.end()
+
 
 class SmartSorterUI(QMainWindow):
     LIGHT_THEME = """
@@ -155,13 +180,11 @@ class SmartSorterUI(QMainWindow):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(10)
 
-        # 시뮬레이션 모드 표시 라벨 (레이아웃에서 제거, 합계 부분으로 이동 예정)
         self.lbl_sim_mode = QLabel("⚠️ 시뮬레이션 모드 (아두이노 미연결)")
         self.lbl_sim_mode.setObjectName("SimMode")
         self.lbl_sim_mode.setFont(QFont(UI_FONT_FAMILY, 14))
         self.lbl_sim_mode.setAlignment(Qt.AlignCenter)
-        self.lbl_sim_mode.hide() # 기본은 숨김
-        # left_layout.addWidget(self.lbl_sim_mode)
+        self.lbl_sim_mode.hide() 
 
         grid_layout = QGridLayout()
         grid_layout.setSpacing(10)
@@ -203,9 +226,7 @@ class SmartSorterUI(QMainWindow):
         right_panel = QFrame()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(10) # 왼쪽 그리드 간격(10px)과 동일하게 설정
-        
-        # 상단 stretch 제거 (왼쪽 첫 번째 칸과 수평을 맞추기 위함)
+        right_layout.setSpacing(10) 
 
 
         # 설정 항목들
@@ -214,19 +235,17 @@ class SmartSorterUI(QMainWindow):
         self.setting_min = self.create_setting_row("최소조합개수", "3")
         self.setting_max = self.create_setting_row("최대조합개수", "4")
 
-        right_layout.addWidget(self.setting_product) # 좌측 1번과 수평 맞춤
-        right_layout.addWidget(self.setting_target)  # 좌측 2번과 수평 맞춤
-        right_layout.addWidget(self.setting_min)     # 좌측 3번과 수평 맞춤
-        right_layout.addWidget(self.setting_max)     # 좌측 4번과 수평 맞춤
+        right_layout.addWidget(self.setting_product) 
+        right_layout.addWidget(self.setting_target)  
+        right_layout.addWidget(self.setting_min)     
+        right_layout.addWidget(self.setting_max)     
         
-        # 좌측 5, 6번 저울에 해당하는 빈 공간을 확보하여 높이 일치시킴
         right_layout.addStretch(2) 
-        
-        right_layout.addSpacing(1) # 조합무게 카드 전 여백 조금 더 부여
+        right_layout.addSpacing(1) 
 
         self.combo_card = QFrame()
         self.combo_card.setObjectName("ComboCard")
-        self.combo_card.setMinimumHeight(100) # 높이를 100으로 키워 공간 채움
+        self.combo_card.setMinimumHeight(100) 
 
         
         self.combo_shadow.setBlurRadius(20)
@@ -234,22 +253,22 @@ class SmartSorterUI(QMainWindow):
         self.combo_card.setGraphicsEffect(self.combo_shadow)
 
         combo_layout = QHBoxLayout(self.combo_card)
-        combo_layout.setContentsMargins(25, 20, 25, 20) # 여백을 다시 키워 박스 볼륨감 확보
+        combo_layout.setContentsMargins(25, 20, 25, 20) 
         
         combo_title = QLabel("조합무게")
         combo_title.setObjectName("ComboTitle")
-        combo_title.setFont(QFont(UI_FONT_FAMILY, 18, QFont.Bold)) # 폰트 크기 복원
+        combo_title.setFont(QFont(UI_FONT_FAMILY, 18, QFont.Bold)) 
         
         self.combo_val = QLabel("2,050 g")
         self.combo_val.setObjectName("ComboValue")
-        self.combo_val.setFont(QFont(UI_FONT_FAMILY, 36, QFont.Bold)) # 결과값 폰트 대폭 확대
+        self.combo_val.setFont(QFont(UI_FONT_FAMILY, 36, QFont.Bold)) 
         self.combo_val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         
         combo_layout.addWidget(combo_title)
         combo_layout.addWidget(self.combo_val)
         
         right_layout.addWidget(self.combo_card)
-        right_layout.addStretch(1) # 하단 버튼부와의 간격을 위한 여백 가중치 조절
+        right_layout.addStretch(1) 
 
 
         # 조작 버튼 세트
@@ -293,6 +312,11 @@ class SmartSorterUI(QMainWindow):
         card.setObjectName("Card")
         card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         card.setMinimumHeight(50)
+        
+        # ✨ 업데이트: 오직 1번 카드(①)에만 워터마크 텍스트 부여
+        if num_str == '①':
+            card.watermark_text = "종료"
+            
         layout = QHBoxLayout(card)
         layout.setContentsMargins(10, 5, 10, 5)
         layout.setSpacing(5)
@@ -315,8 +339,8 @@ class SmartSorterUI(QMainWindow):
     def create_setting_row(self, label_text, value_text):
         row_widget = QFrame()
         row_widget.setObjectName("Card")
-        row_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed) # 높이 고정으로 변경
-        row_widget.setFixedHeight(60) # 높이 60으로 명시적 고정
+        row_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed) 
+        row_widget.setFixedHeight(60) 
         
         layout = QHBoxLayout(row_widget)
         layout.setContentsMargins(10, 5, 10, 5)
@@ -351,17 +375,16 @@ class SmartSorterUI(QMainWindow):
     def apply_theme(self):
         if self.is_dark_mode:
             self.setStyleSheet(self.DARK_THEME)
-            self.btn_theme_toggle.setText("☀️")
-            self.combo_shadow.setColor(QColor(16, 185, 129, 80)) # Dark shadow color
+            self.btn_theme_toggle.setText("밝게")
+            self.combo_shadow.setColor(QColor(16, 185, 129, 80)) 
         else:
             self.setStyleSheet(self.LIGHT_THEME)
-            self.btn_theme_toggle.setText("🌙")
-            self.combo_shadow.setColor(QColor(16, 185, 129, 60)) # Light shadow color
+            self.btn_theme_toggle.setText("어둡")
+            self.combo_shadow.setColor(QColor(16, 185, 129, 60)) 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     
-    # 동적 폰트 로드 (나눔바른고딕)
     font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "NanumBarunGothic.ttf")
     if os.path.exists(font_path):
         font_id = QFontDatabase.addApplicationFont(font_path)
@@ -371,7 +394,6 @@ if __name__ == "__main__":
                 UI_FONT_FAMILY = families[0]
                 print(f"Loaded Custom Font: {UI_FONT_FAMILY}")
     
-    # 폰트 렌더링 개선 (안티앨리어싱)
     default_font = app.font()
     default_font.setFamily(UI_FONT_FAMILY)
     default_font.setStyleStrategy(QFont.PreferAntialias)
