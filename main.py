@@ -36,9 +36,7 @@ def check_ota_update():
 
 
 class SerialThread(QThread):
-    # 시리얼로 수신한 12개 무게 배열 전달하는 PyQt 시그널
     data_received = pyqtSignal(list)
-    # 시뮬레이션 모드 여부 전달 시그널
     is_simulation = pyqtSignal(bool)
 
     def __init__(self, ports=['/dev/ttyACM0', '/dev/ttyUSB0', 'COM3', 'COM4', 'COM5'], baudrate=115200):
@@ -49,7 +47,6 @@ class SerialThread(QThread):
         self.running = True
 
     def run(self):
-        # 포트 연결 시도
         for p in self.ports:
             try:
                 self.serial_port = serial.Serial(p, self.baudrate, timeout=1)
@@ -84,19 +81,18 @@ class SerialThread(QThread):
                     print(f"시리얼 수신 스트림 오류: {e}")
                     time.sleep(1)
             else:
-                # ✨ 업데이트 사항: 시뮬레이션 모드에서 랜덤 ERR(-1) 상황 가정 추가
                 fake_weights = []
                 for _ in range(12):
                     chance = random.random()
-                    if chance > 0.10: # 90% 확률로 정상 포도 무게
+                    if chance > 0.10: 
                         fake_weights.append(random.randint(450, 1100))
-                    elif chance > 0.02: # 8% 확률로 빈 트레이 (0g)
+                    elif chance > 0.02: 
                         fake_weights.append(0)
-                    else: # 2% 확률로 센서 고장(ERR) 발생 -> 내부적으로 -1로 처리
+                    else: 
                         fake_weights.append(-1)
                         
                 self.data_received.emit(fake_weights)
-                time.sleep(1) # 눈으로 확인하기 용이하도록 1초 간격 갱신
+                time.sleep(1) 
 
     def parse_packet(self, packet):
         parts = packet.split(',')
@@ -114,7 +110,6 @@ class SerialThread(QThread):
             self.data_received.emit(weights)
 
     def send_signal(self, indices):
-        """조합이 맞는 경우 해당 트레이 인덱스를 아두이노로 송신하여 LED 점등 요구"""
         if self.serial_port and self.serial_port.is_open:
             msg = f"<{','.join(map(str, indices))}>\n"
             try:
@@ -134,30 +129,37 @@ class SerialThread(QThread):
 class MainApp(SmartSorterUI):
     def __init__(self):
         super().__init__()
-        # PC(Windows) 환경에서는 최대화 창, 라즈베리파이(Linux)는 풀스크린 적용
         if sys.platform == 'win32':
             self.showNormal()
         else:
             self.showFullScreen()
         
-        # 내부 알고리즘 설정 상태 초기화
         self.weights = [0] * 12
         self.target_weight = 2050
         self.min_comb = 3
         self.max_comb = 4
-        self.is_running = True
         self.product_name = "포도 2KG"
         
         self.setup_logic()
         
-        # 히든 기능: 1번 저울 카드 더블클릭 시 프로그램 종료 (별도 표시 없음)
         self.tray_cards[0].doubleClicked.connect(QApplication.instance().quit)
+        self.tray_cards[6].doubleClicked.connect(self.restart_program) 
+        self.tray_cards[11].doubleClicked.connect(self.shutdown_system) 
         
-        # 아두이노 시리얼 통신 백그라운드 스레드 시작
         self.serial_thread = SerialThread()
         self.serial_thread.data_received.connect(self.on_data_received)
         self.serial_thread.is_simulation.connect(self.update_sim_mode_display)
         self.serial_thread.start()
+
+    def restart_program(self):
+        print("프로그램 재시작을 수행합니다...")
+        self.serial_thread.stop()
+        os.execv(sys.executable, ['python'] + sys.argv)
+
+    def shutdown_system(self):
+        print("라즈베리파이 시스템을 종료합니다...")
+        self.serial_thread.stop()
+        os.system("sudo shutdown now")
 
     def update_sim_mode_display(self, is_sim):
         if is_sim:
@@ -170,12 +172,9 @@ class MainApp(SmartSorterUI):
     def setup_logic(self):
         self.update_setting_ui()
         
-        self.btn_pause.clicked.connect(self.pause_operation)
-        self.btn_run.clicked.connect(self.start_operation)
+        self.btn_tare.clicked.connect(self.send_tare_command)
         self.btn_register.clicked.connect(self.dummy_register) 
         
-        self.btn_run.hide()
-
         self.setting_target.btn_minus.clicked.connect(lambda: self.change_setting('target', -10))
         self.setting_target.btn_plus.clicked.connect(lambda: self.change_setting('target', 10))
         
@@ -191,9 +190,20 @@ class MainApp(SmartSorterUI):
         original_toggle_theme = self.toggle_theme
         def new_toggle_theme():
             original_toggle_theme()
-            self.combo_card.setStyleSheet(self.get_combo_card_style(highlight=(self.combo_val.text() != "조합실패" and self.is_running)))
+            self.combo_card.setStyleSheet(self.get_combo_card_style(highlight=(self.combo_val.text() != "조합실패")))
         self.btn_theme_toggle.clicked.disconnect() 
         self.btn_theme_toggle.clicked.connect(new_toggle_theme)
+
+    # ✨ 수정됨: 시뮬레이션 시 출력 문구를 정확하게 <TARE> 로 맞춤
+    def send_tare_command(self):
+        if self.serial_thread.serial_port and self.serial_thread.serial_port.is_open:
+            try:
+                self.serial_thread.serial_port.write(b"<TARE>\n")
+                print("[시리얼 송신] 영점 조절 명령 전송: <TARE>")
+            except Exception as e:
+                print(f"시리얼 데이터 송신 오류: {e}")
+        else:
+            print("[시뮬레이션] 영점 조절 명령 전송: <TARE>")
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_F11:
@@ -225,23 +235,6 @@ class MainApp(SmartSorterUI):
 
     def dummy_register(self):
         QMessageBox.information(self, "제품 등록", "포도 품종 및 목표 무게 저장 시스템 연동 시에 지원됩니다.")
-
-    def start_operation(self):
-        self.is_running = True
-        self.combo_val.setText("동작재개")
-        self.combo_card.setStyleSheet(self.get_combo_card_style(highlight=False))
-        self.btn_run.hide()
-        self.btn_pause.show()
-        
-    def pause_operation(self):
-        self.is_running = False
-        self.combo_val.setText("일시정지")
-        if self.is_dark_mode:
-            self.combo_card.setStyleSheet("QFrame#ComboCard { border: 2px solid #D97706; background-color: #78350F; border-radius: 20px; }")
-        else:
-            self.combo_card.setStyleSheet("QFrame#ComboCard { border: 2px solid #F59E0B; background-color: #FEF3C7; border-radius: 20px; }")
-        self.btn_pause.hide()
-        self.btn_run.show()
 
     def get_combo_card_style(self, highlight=True):
         if self.is_dark_mode:
@@ -278,8 +271,7 @@ class MainApp(SmartSorterUI):
                 
         self.sum_val_lbl.setText(f"{total:,} g")
         
-        if self.is_running:
-            self.find_best_combination()
+        self.find_best_combination()
 
     def find_best_combination(self):
         target = self.target_weight
