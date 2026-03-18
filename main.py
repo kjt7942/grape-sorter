@@ -5,15 +5,16 @@ import subprocess
 import os
 import time
 import random
+import json
 
 from PyQt5.QtWidgets import QApplication, QMessageBox
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 
-# 사용자 정의 레이아웃/UI 모듈명 임포트
-from main_ui import SmartSorterUI
+from main_ui import SmartSorterUI, PresetDialog
+
+SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
 
 def check_ota_update():
-    """최초 실행 시 Github OTA 업데이트 수행 로직"""
     try:
         subprocess.run(["git", "fetch"], timeout=3, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         status = subprocess.run(["git", "status", "-uno"], capture_output=True, text=True)
@@ -24,7 +25,6 @@ def check_ota_update():
             msg_box.setText("새로운 시스템 업데이트가 발견되었습니다.\n적용하시겠습니까?")
             msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             
-            # 최상단 표시 옵션 적용
             msg_box.setWindowFlags(msg_box.windowFlags() | Qt.WindowStaysOnTopHint)
             
             if msg_box.exec() == QMessageBox.Yes:
@@ -135,10 +135,15 @@ class MainApp(SmartSorterUI):
             self.showFullScreen()
         
         self.weights = [0] * 12
-        self.target_weight = 2050
-        self.min_comb = 3
-        self.max_comb = 4
-        self.product_name = "포도 2KG"
+        
+        self.settings_data = self.load_settings()
+        last_state = self.settings_data.get("last_state", {})
+        
+        self.target_weight = last_state.get("target_weight", 2050)
+        self.min_comb = last_state.get("min_comb", 3)
+        self.max_comb = last_state.get("max_comb", 4)
+        self.is_dark_mode = last_state.get("is_dark_mode", True)
+        self.current_preset_index = last_state.get("current_preset_index", None)
         
         self.setup_logic()
         
@@ -151,13 +156,53 @@ class MainApp(SmartSorterUI):
         self.serial_thread.is_simulation.connect(self.update_sim_mode_display)
         self.serial_thread.start()
 
+    # ✨ 핵심: 기존 4개짜리 DB 데이터를 불러와도 에러나지 않고 8개로 자동 연장(호환성 패치)
+    def load_settings(self):
+        if os.path.exists(SETTINGS_FILE):
+            try:
+                with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if "presets" not in data or len(data["presets"]) < 8:
+                        presets = data.get("presets", [])
+                        presets.extend([None] * (8 - len(presets)))
+                        data["presets"] = presets
+                    return data
+            except Exception as e:
+                print(f"설정 파일 읽기 오류: {e}")
+        return {
+            "last_state": {},
+            "presets": [None] * 8 
+        }
+
+    def save_settings(self):
+        self.settings_data["last_state"] = {
+            "target_weight": self.target_weight,
+            "min_comb": self.min_comb,
+            "max_comb": self.max_comb,
+            "is_dark_mode": self.is_dark_mode,
+            "current_preset_index": self.current_preset_index 
+        }
+        try:
+            with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self.settings_data, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"설정 파일 저장 오류: {e}")
+
+    def closeEvent(self, event):
+        print("프로그램 종료 전 마지막 상태를 저장합니다...")
+        self.save_settings()
+        self.serial_thread.stop()
+        super().closeEvent(event)
+
     def restart_program(self):
         print("프로그램 재시작을 수행합니다...")
+        self.save_settings()
         self.serial_thread.stop()
         os.execv(sys.executable, ['python'] + sys.argv)
 
     def shutdown_system(self):
         print("라즈베리파이 시스템을 종료합니다...")
+        self.save_settings()
         self.serial_thread.stop()
         os.system("sudo shutdown now")
 
@@ -171,21 +216,22 @@ class MainApp(SmartSorterUI):
 
     def setup_logic(self):
         self.update_setting_ui()
+        self.apply_theme() 
         
         self.btn_tare.clicked.connect(self.send_tare_command)
-        self.btn_register.clicked.connect(self.dummy_register) 
+        self.btn_register.clicked.connect(self.show_preset_dialog) 
         
-        self.setting_target.btn_minus.clicked.connect(lambda: self.change_setting('target', -10))
-        self.setting_target.btn_plus.clicked.connect(lambda: self.change_setting('target', 10))
+        self.setting_target.btn_minus.stepTriggered.connect(lambda mult: self.change_setting('target', -10 * mult))
+        self.setting_target.btn_plus.stepTriggered.connect(lambda mult: self.change_setting('target', 10 * mult))
         
-        self.setting_min.btn_minus.clicked.connect(lambda: self.change_setting('min', -1))
-        self.setting_min.btn_plus.clicked.connect(lambda: self.change_setting('min', 1))
+        self.setting_min.btn_minus.stepTriggered.connect(lambda mult: self.change_setting('min', -1))
+        self.setting_min.btn_plus.stepTriggered.connect(lambda mult: self.change_setting('min', 1))
         
-        self.setting_max.btn_minus.clicked.connect(lambda: self.change_setting('max', -1))
-        self.setting_max.btn_plus.clicked.connect(lambda: self.change_setting('max', 1))
+        self.setting_max.btn_minus.stepTriggered.connect(lambda mult: self.change_setting('max', -1))
+        self.setting_max.btn_plus.stepTriggered.connect(lambda mult: self.change_setting('max', 1))
         
-        self.setting_product.btn_minus.hide()
-        self.setting_product.btn_plus.hide()
+        self.setting_product.btn_minus.stepTriggered.connect(lambda mult: self.cycle_preset(-1) if mult == 1 else None)
+        self.setting_product.btn_plus.stepTriggered.connect(lambda mult: self.cycle_preset(1) if mult == 1 else None)
         
         original_toggle_theme = self.toggle_theme
         def new_toggle_theme():
@@ -194,7 +240,100 @@ class MainApp(SmartSorterUI):
         self.btn_theme_toggle.clicked.disconnect() 
         self.btn_theme_toggle.clicked.connect(new_toggle_theme)
 
-    # ✨ 수정됨: 시뮬레이션 시 출력 문구를 정확하게 <TARE> 로 맞춤
+    # ✨ 업데이트: 8구역 순환 로직 적용
+    def cycle_preset(self, direction):
+        presets = self.settings_data.get("presets", [])
+        if len(presets) < 8:
+            presets.extend([None] * (8 - len(presets)))
+            
+        if not any(presets):
+            return 
+            
+        idx = self.current_preset_index if self.current_preset_index is not None else 0
+        
+        for _ in range(8): 
+            idx = (idx + direction) % 8
+            if presets[idx] is not None:
+                self.load_preset(idx, dialog=None) 
+                break
+
+    def show_preset_dialog(self):
+        dialog = PresetDialog(self, is_dark_mode=self.is_dark_mode)
+        presets = self.settings_data.get("presets", [])
+        if len(presets) < 8:
+            presets.extend([None] * (8 - len(presets)))
+            self.settings_data["presets"] = presets
+            
+        # ✨ 핵심: 비우기 버튼 클릭 시 경고창 호출 로직 연결
+        dialog.btn_clear.clicked.connect(lambda: self.clear_all_presets(dialog))
+        
+        slot_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+        for i, btn in enumerate(dialog.preset_buttons):
+            if presets[i]:
+                p = presets[i]
+                btn.setText(f"슬롯 {slot_names[i]}\n{p['target_weight']}g\n({p['min_comb']}~{p['max_comb']}개)")
+            else:
+                btn.setText(f"슬롯 {slot_names[i]}\n(비어있음)")
+                
+            btn.shortClicked.connect(lambda idx=i, d=dialog: self.load_preset(idx, d))
+            btn.longPressed.connect(lambda idx=i, b=btn, s=slot_names[i]: self.save_preset(idx, b, s))
+            
+        dialog.exec_()
+
+    # ✨ 신규: 8개 슬롯 모두 초기화 및 경고창
+    def clear_all_presets(self, dialog):
+        reply = QMessageBox.warning(
+            dialog, 
+            "초기화 경고", 
+            "정말로 등록된 8개의 제품 슬롯을 모두 비우시겠습니까?\n이 작업은 되돌릴 수 없습니다.", 
+            QMessageBox.Yes | QMessageBox.No, 
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            self.settings_data["presets"] = [None] * 8
+            self.current_preset_index = None
+            self.save_settings()
+            self.update_setting_ui()
+            
+            # 팝업창 UI 즉시 갱신 (비어있음으로 되돌리기)
+            slot_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+            for i, btn in enumerate(dialog.preset_buttons):
+                btn.setText(f"슬롯 {slot_names[i]}\n(비어있음)")
+                btn.setStyleSheet("") 
+
+    def load_preset(self, index, dialog=None):
+        presets = self.settings_data.get("presets", [None] * 8)
+        if presets[index]:
+            p = presets[index]
+            self.target_weight = p['target_weight']
+            self.min_comb = p['min_comb']
+            self.max_comb = p['max_comb']
+            self.current_preset_index = index 
+            self.update_setting_ui()
+            if dialog:
+                dialog.accept() 
+        else:
+            if dialog:
+                QMessageBox.warning(dialog, "알림", "해당 슬롯은 비어있습니다. 길게 눌러 현재 설정을 저장하세요.")
+
+    def save_preset(self, index, button_widget, slot_name):
+        presets = self.settings_data.get("presets", [None] * 8)
+        presets[index] = {
+            "target_weight": self.target_weight,
+            "min_comb": self.min_comb,
+            "max_comb": self.max_comb
+        }
+        self.settings_data["presets"] = presets
+        self.save_settings() 
+        
+        p = presets[index]
+        button_widget.setText(f"슬롯 {slot_name}\n{p['target_weight']}g\n({p['min_comb']}~{p['max_comb']}개)\n[저장됨!]")
+        button_widget.setStyleSheet("background-color: #059669; color: white;") 
+        
+        self.current_preset_index = index 
+        self.update_setting_ui()
+
     def send_tare_command(self):
         if self.serial_thread.serial_port and self.serial_thread.serial_port.is_open:
             try:
@@ -225,16 +364,26 @@ class MainApp(SmartSorterUI):
             self.max_comb = max(1, min(12, self.max_comb + delta))
             if self.max_comb < self.min_comb: self.min_comb = self.max_comb
             
+        self.current_preset_index = None 
         self.update_setting_ui()
 
     def update_setting_ui(self):
-        self.setting_product.lbl_center.setText(f"제품명 : {self.product_name}")
+        preset_text = f"{self.target_weight:,}g({self.min_comb}~{self.max_comb}개)"
+        
+        if self.current_preset_index is not None:
+            # ✨ 업데이트: 메인 화면 표시용 슬롯 이름도 8개로 확장
+            slot_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+            display_text = f"슬롯 {slot_names[self.current_preset_index]} : {preset_text}"
+        else:
+            display_text = f"수동설정 : {preset_text}"
+            
+        self.setting_product.lbl_center.setText(display_text)
         self.setting_target.lbl_center.setText(f"목표무게 : {self.target_weight:,} g")
         self.setting_min.lbl_center.setText(f"최소조합 : {self.min_comb} 개")
         self.setting_max.lbl_center.setText(f"최대조합 : {self.max_comb} 개")
 
     def dummy_register(self):
-        QMessageBox.information(self, "제품 등록", "포도 품종 및 목표 무게 저장 시스템 연동 시에 지원됩니다.")
+        pass 
 
     def get_combo_card_style(self, highlight=True):
         if self.is_dark_mode:
@@ -315,6 +464,8 @@ class MainApp(SmartSorterUI):
             self.serial_thread.send_signal([])
 
     def closeEvent(self, event):
+        print("프로그램 종료 전 마지막 상태를 저장합니다...")
+        self.save_settings()
         self.serial_thread.stop()
         super().closeEvent(event)
 

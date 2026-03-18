@@ -1,12 +1,154 @@
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QGridLayout, QLabel, QPushButton, QFrame, QSizePolicy, QGraphicsDropShadowEffect)
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QFont, QColor, QPainter
+                             QHBoxLayout, QGridLayout, QLabel, QPushButton, QFrame, QSizePolicy, QGraphicsDropShadowEffect, QDialog)
+from PyQt5.QtCore import Qt, pyqtSignal, QTimer
+from PyQt5.QtGui import QFont, QColor, QPainter, QFontDatabase
+import os
 
 UI_FONT_FAMILY = "NanumBarunGothic"
-import os
-from PyQt5.QtGui import QFontDatabase
+
+class HoldButton(QPushButton):
+    stepTriggered = pyqtSignal(int)
+
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.on_timeout)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.timer.start(400) 
+            self.stepTriggered.emit(1) 
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.timer.stop() 
+        super().mouseReleaseEvent(event)
+
+    def on_timeout(self):
+        self.timer.setInterval(100) 
+        self.stepTriggered.emit(5) 
+
+
+class LongPressButton(QPushButton):
+    shortClicked = pyqtSignal()
+    longPressed = pyqtSignal()
+
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.on_long_press)
+        self.is_long_pressed = False
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.is_long_pressed = False
+            self.timer.start(2000) 
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.timer.stop()
+            if not self.is_long_pressed:
+                self.shortClicked.emit()
+        super().mouseReleaseEvent(event)
+
+    def on_long_press(self):
+        self.is_long_pressed = True
+        self.longPressed.emit()
+
+
+# ✨ 핵심 업데이트: 팝업창 크기를 800x480으로 확장 및 내부 레이아웃 재정렬
+class PresetDialog(QDialog):
+    def __init__(self, parent=None, is_dark_mode=True):
+        super().__init__(parent)
+        self.setWindowTitle("제품 등록 (프리셋)")
+        # 메인 화면과 완벽하게 동일한 크기로 설정하여 Full Overlay 효과
+        self.setFixedSize(800, 480) 
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint) 
+        
+        self.is_dark_mode = is_dark_mode
+        self.preset_buttons = []
+        self.initUI()
+        
+    def initUI(self):
+        layout = QVBoxLayout(self)
+        # 넓어진 화면에 맞게 화면 상하좌우 여백을 25픽셀로 넉넉하게 부여
+        layout.setContentsMargins(25, 25, 25, 25)
+        layout.setSpacing(15)
+        
+        title_layout = QHBoxLayout()
+        title_layout.addStretch(1)
+        
+        title = QLabel("제품 등록 및 불러오기")
+        # 타이틀 폰트 크기 확대 (18 -> 22)
+        title.setFont(QFont(UI_FONT_FAMILY, 22, QFont.Bold))
+        title_layout.addWidget(title)
+        
+        title_layout.addStretch(1)
+        
+        self.btn_clear = QPushButton("비우기")
+        self.btn_clear.setObjectName("ClearBtn") 
+        # 비우기 버튼 크기와 폰트 확대
+        self.btn_clear.setFont(QFont(UI_FONT_FAMILY, 14, QFont.Bold))
+        self.btn_clear.setFixedSize(100, 45)
+        title_layout.addWidget(self.btn_clear)
+        
+        layout.addLayout(title_layout)
+        
+        desc = QLabel("버튼을 짧게 터치하면 불러오기, 2초간 길게 누르면 현재 설정이 저장됩니다.")
+        # 설명 폰트 확대 (12 -> 14)
+        desc.setFont(QFont(UI_FONT_FAMILY, 14))
+        desc.setAlignment(Qt.AlignCenter)
+        layout.addWidget(desc)
+        
+        grid_layout = QGridLayout()
+        grid_layout.setSpacing(15) # 슬롯 카드들 사이의 간격도 넓게 조정
+        slot_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+        for i, name in enumerate(slot_names):
+            btn = LongPressButton(f"슬롯 {name}\n(비어있음)")
+            btn.setFont(QFont(UI_FONT_FAMILY, 16, QFont.Bold))
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            grid_layout.addWidget(btn, i // 4, i % 4)
+            self.preset_buttons.append(btn)
+            
+        layout.addLayout(grid_layout)
+        
+        btn_close = QPushButton("닫기")
+        # 닫기 버튼 크기와 폰트 듬직하게 확대
+        btn_close.setFont(QFont(UI_FONT_FAMILY, 16, QFont.Bold))
+        btn_close.setFixedHeight(60)
+        btn_close.clicked.connect(self.accept)
+        layout.addWidget(btn_close)
+        
+        self.apply_theme()
+
+    def apply_theme(self):
+        if self.is_dark_mode:
+            self.setStyleSheet("""
+                QDialog { background-color: #1E1E1E; border: 2px solid #333333; border-radius: 15px; }
+                QLabel { color: #E0E0E0; }
+                QPushButton { background-color: #2D2D2D; border: 1px solid #404040; border-radius: 10px; color: #E0E0E0; }
+                QPushButton:hover { background-color: #383838; }
+                QPushButton:pressed { background-color: #4D4D4D; }
+                QPushButton#ClearBtn { background-color: #EF4444; color: white; border: none; }
+                QPushButton#ClearBtn:hover { background-color: #DC2626; }
+                QPushButton#ClearBtn:pressed { background-color: #B91C1C; }
+            """)
+        else:
+            self.setStyleSheet("""
+                QDialog { background-color: #FFFFFF; border: 2px solid #E5E7EB; border-radius: 15px; }
+                QLabel { color: #1F2937; }
+                QPushButton { background-color: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 10px; color: #1F2937; }
+                QPushButton:hover { background-color: #E5E7EB; }
+                QPushButton:pressed { background-color: #D1D5DB; }
+                QPushButton#ClearBtn { background-color: #EF4444; color: white; border: none; }
+                QPushButton#ClearBtn:hover { background-color: #DC2626; }
+                QPushButton#ClearBtn:pressed { background-color: #B91C1C; }
+            """)
+
 
 class ClickableFrame(QFrame):
     doubleClicked = pyqtSignal()
@@ -256,7 +398,6 @@ class SmartSorterUI(QMainWindow):
         right_layout.addWidget(self.combo_card)
         right_layout.addStretch(1) 
 
-        # ✨ 핵심 변경점: 세 버튼의 크기 비율을 동일하게 조정
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
         
@@ -272,8 +413,8 @@ class SmartSorterUI(QMainWindow):
 
         self.btn_theme_toggle = QPushButton("어둡게") 
         self.btn_theme_toggle.setObjectName("ThemeBtn")
-        self.btn_theme_toggle.setFont(QFont(UI_FONT_FAMILY, 14, QFont.Bold)) # 폰트 크기 통일
-        self.btn_theme_toggle.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum) # 가로 크기 확장
+        self.btn_theme_toggle.setFont(QFont(UI_FONT_FAMILY, 14, QFont.Bold)) 
+        self.btn_theme_toggle.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum) 
         self.btn_theme_toggle.setMinimumHeight(55)
         self.btn_theme_toggle.clicked.connect(self.toggle_theme)
 
@@ -328,7 +469,7 @@ class SmartSorterUI(QMainWindow):
         layout.setContentsMargins(10, 5, 10, 5)
         layout.setSpacing(10)
         
-        btn_minus = QPushButton("-")
+        btn_minus = HoldButton("-")
         btn_minus.setObjectName("ControlBtn")
         btn_minus.setFixedSize(40, 40)
         
@@ -336,7 +477,7 @@ class SmartSorterUI(QMainWindow):
         lbl_center.setFont(QFont(UI_FONT_FAMILY, 13, QFont.Bold))
         lbl_center.setAlignment(Qt.AlignCenter)
         
-        btn_plus = QPushButton("+")
+        btn_plus = HoldButton("+")
         btn_plus.setObjectName("ControlBtn")
         btn_plus.setFixedSize(40, 40)
         
