@@ -15,29 +15,22 @@ from main_ui import SmartSorterUI, PresetDialog
 # 프로그램의 목표무게, 프리셋 정보를 저장할 파일 경로
 SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
 
-def check_ota_update():
+
+# ✨ 3번 교정: 화면 멈춤 방지를 위한 백그라운드 OTA 스레드 신설
+class OTAThread(QThread):
     """
-    프로그램 기동 시 서버(Git)로부터 최신 코드가 있는지 확인하고 
-    업데이트가 발견되면 사용자 승인을 얻어 자동 업데이트 및 재시작합니다.
+    프로그램이 켜질 때 화면을 멈추지 않게 뒤에서 몰래 깃허브(서버) 상태를 묻고 오는 스파이 스레드입니다.
     """
-    try:
-        subprocess.run(["git", "fetch"], timeout=3, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        status = subprocess.run(["git", "status", "-uno"], capture_output=True, text=True)
-        if "Your branch is behind" in status.stdout:
-            msg_box = QMessageBox()
-            msg_box.setIcon(QMessageBox.Question)
-            msg_box.setWindowTitle("업데이트 알림")
-            msg_box.setText("새로운 시스템 업데이트가 발견되었습니다.\n적용하시겠습니까?")
-            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            msg_box.setWindowFlags(msg_box.windowFlags() | Qt.WindowStaysOnTopHint)
-            
-            if msg_box.exec() == QMessageBox.Yes:
-                subprocess.run(["git", "reset", "--hard"], check=True)
-                subprocess.run(["git", "pull"], check=True)
-                # 현재 프로세스를 최신 코드로 교체 실행
-                os.execv(sys.executable, ['python'] + sys.argv)
-    except Exception as e:
-        print("업데이트 확인 생략 (네트워크 또는 권한 문제):", e)
+    update_available = pyqtSignal()
+
+    def run(self):
+        try:
+            subprocess.run(["git", "fetch"], timeout=3, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            status = subprocess.run(["git", "status", "-uno"], capture_output=True, text=True)
+            if "Your branch is behind" in status.stdout:
+                self.update_available.emit() # 업데이트가 있으면 메인 화면에 신호 발사!
+        except Exception as e:
+            print("업데이트 확인 생략 (네트워크 또는 권한 문제):", e)
 
 
 class SerialThread(QThread):
@@ -183,6 +176,29 @@ class MainApp(SmartSorterUI):
         self.serial_thread.data_received.connect(self.on_data_received)
         self.serial_thread.is_simulation.connect(self.update_sim_mode_display)
         self.serial_thread.start()
+        
+        # ✨ 3번 교정: 화면이 뜨자마자 백그라운드에서 업데이트 확인 시작
+        self.start_ota_check()
+
+    def start_ota_check(self):
+        self.ota_thread = OTAThread()
+        self.ota_thread.update_available.connect(self.prompt_ota_update)
+        self.ota_thread.start()
+
+    def prompt_ota_update(self):
+        """백그라운드에서 업데이트를 발견하면 팝업창을 띄워 결재를 받습니다."""
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Question)
+        msg_box.setWindowTitle("업데이트 알림")
+        msg_box.setText("새로운 시스템 업데이트가 발견되었습니다.\n적용하시겠습니까?")
+        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg_box.setWindowFlags(msg_box.windowFlags() | Qt.WindowStaysOnTopHint)
+        
+        if msg_box.exec() == QMessageBox.Yes:
+            subprocess.run(["git", "reset", "--hard"], check=True)
+            subprocess.run(["git", "pull"], check=True)
+            # ✨ 2번 교정: 'python' 고정 글자 대신 sys.executable로 어떤 OS에서든 100% 안전하게 재시작!
+            os.execv(sys.executable, [sys.executable] + sys.argv)
 
     def load_settings(self):
         """settings.json에서 마지막 설정과 프리셋 데이터를 읽어옵니다."""
@@ -225,7 +241,7 @@ class MainApp(SmartSorterUI):
         """프로그램을 즉시 재기동합니다."""
         self.save_settings()
         self.serial_thread.stop()
-        os.execv(sys.executable, ['python'] + sys.argv)
+        os.execv(sys.executable, [sys.executable] + sys.argv) # 여기서도 안전하게 교정
 
     def shutdown_system(self):
         """라즈베리파이 시스템 전체 전원을 종료합니다."""
@@ -334,7 +350,7 @@ class MainApp(SmartSorterUI):
             self.save_settings()
             self.update_setting_ui()
             
-            # ✨ 버그 3 해결: 팝업창을 튕겨 끄지 않고 8개 버튼을 '비어있음'으로 실시간 갱신!
+            # 버그 3 해결 (UI 즉시 갱신)
             slot_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
             for i, btn in enumerate(dialog.preset_buttons):
                 btn.setText(f"슬롯 {slot_names[i]}\n(비어있음)")
@@ -381,7 +397,7 @@ class MainApp(SmartSorterUI):
         elif kind == 'min':
             self.min_comb = max(1, min(12, self.min_comb + delta))
             if self.min_comb > self.max_comb: self.max_comb = self.min_comb
-            # ✨ 버그 4 해결: 보태기 모드 중에 수동으로 개수를 조작하면, 나중에 롤백될 메모리 값도 같이 업데이트!
+            # 버그 4 해결
             if self.is_topup_mode:
                 self.memo_min_comb = self.min_comb
         elif kind == 'max':
@@ -517,8 +533,6 @@ class MainApp(SmartSorterUI):
 if __name__ == "__main__":
     import main_ui # 모듈 레벨 변수 접근용
     from PyQt5.QtGui import QFont, QFontDatabase
-    
-    check_ota_update() # 기동 시 업데이트 체크
     
     # 터치패널/고주사율 대응 고해상도 옵션
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)

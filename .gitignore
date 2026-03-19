@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 desktop.ini
 .DS_Store
+settings.json
+dev_environment_spec.md
