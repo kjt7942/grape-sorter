@@ -156,7 +156,6 @@ class MainApp(SmartSorterUI):
         self.serial_thread.is_simulation.connect(self.update_sim_mode_display)
         self.serial_thread.start()
 
-    # ✨ 핵심: 기존 4개짜리 DB 데이터를 불러와도 에러나지 않고 8개로 자동 연장(호환성 패치)
     def load_settings(self):
         if os.path.exists(SETTINGS_FILE):
             try:
@@ -240,7 +239,6 @@ class MainApp(SmartSorterUI):
         self.btn_theme_toggle.clicked.disconnect() 
         self.btn_theme_toggle.clicked.connect(new_toggle_theme)
 
-    # ✨ 업데이트: 8구역 순환 로직 적용
     def cycle_preset(self, direction):
         presets = self.settings_data.get("presets", [])
         if len(presets) < 8:
@@ -264,7 +262,6 @@ class MainApp(SmartSorterUI):
             presets.extend([None] * (8 - len(presets)))
             self.settings_data["presets"] = presets
             
-        # ✨ 핵심: 비우기 버튼 클릭 시 경고창 호출 로직 연결
         dialog.btn_clear.clicked.connect(lambda: self.clear_all_presets(dialog))
         
         slot_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
@@ -280,7 +277,6 @@ class MainApp(SmartSorterUI):
             
         dialog.exec_()
 
-    # ✨ 신규: 8개 슬롯 모두 초기화 및 경고창
     def clear_all_presets(self, dialog):
         reply = QMessageBox.warning(
             dialog, 
@@ -296,7 +292,6 @@ class MainApp(SmartSorterUI):
             self.save_settings()
             self.update_setting_ui()
             
-            # 팝업창 UI 즉시 갱신 (비어있음으로 되돌리기)
             slot_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
             for i, btn in enumerate(dialog.preset_buttons):
                 btn.setText(f"슬롯 {slot_names[i]}\n(비어있음)")
@@ -371,7 +366,6 @@ class MainApp(SmartSorterUI):
         preset_text = f"{self.target_weight:,}g({self.min_comb}~{self.max_comb}개)"
         
         if self.current_preset_index is not None:
-            # ✨ 업데이트: 메인 화면 표시용 슬롯 이름도 8개로 확장
             slot_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
             display_text = f"슬롯 {slot_names[self.current_preset_index]} : {preset_text}"
         else:
@@ -422,6 +416,7 @@ class MainApp(SmartSorterUI):
         
         self.find_best_combination()
 
+    # ✨ 핵심 업데이트: 알고리즘 지능 고도화 (회전율 극대화)
     def find_best_combination(self):
         target = self.target_weight
         min_c = self.min_comb
@@ -439,10 +434,17 @@ class MainApp(SmartSorterUI):
                 diff = combo_sum - target
                 
                 if 0 <= diff <= 100:
+                    # 1순위: 오차가 기존보다 더 작으면 무조건 챔피언 교체
                     if diff < best_diff:
                         best_diff = diff
                         best_combo = combo
                         best_sum = combo_sum
+                    # 2순위: 오차가 완전히 똑같다면? (동점 상황)
+                    elif diff == best_diff:
+                        # 무조건 접시를 더 많이 쓰는(len이 긴) 조합으로 챔피언 교체! (회전율 극대화)
+                        if best_combo is None or len(combo) > len(best_combo):
+                            best_combo = combo
+                            best_sum = combo_sum
                         
         if best_combo:
             self.combo_val.setText(f"{best_sum:,} g")
