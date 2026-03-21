@@ -176,14 +176,12 @@ class MainApp(SmartSorterUI):
         self.ota_thread.update_available.connect(self.prompt_ota_update)
         self.ota_thread.start()
 
-    # ✨ 수술: OTA 팝업 디자인 강제 고정 및 로딩 피드백 추가
     def prompt_ota_update(self):
         msg_box = QMessageBox(self)
         msg_box.setIcon(QMessageBox.Information)
         msg_box.setWindowTitle("시스템 업데이트 알림")
         msg_box.setText("새로운 시스템 업데이트가 발견되었습니다.\n지금 바로 적용하시겠습니까?")
         
-        # 1. 팝업창 디자인 강제 고정 (투명도/글자색 충돌 원천 차단)
         msg_box.setStyleSheet("""
             QMessageBox { background-color: #2D2D2D; }
             QLabel { color: #FFFFFF; font-size: 18px; font-weight: bold; }
@@ -200,17 +198,12 @@ class MainApp(SmartSorterUI):
         msg_box.button(QMessageBox.No).setText("아니오 (나중에)")
         msg_box.setWindowFlags(msg_box.windowFlags() | Qt.WindowStaysOnTopHint)
         
-        # 사용자가 '예'를 눌렀을 때
         if msg_box.exec() == QMessageBox.Yes:
-            # 2. 화면이 멈추기 전에 사용자에게 큼지막한 오버레이로 피드백 제공!
             self.show_message("🚀 시스템 업데이트 진행 중...\n절대 전원을 끄지 마세요! (약 15초 소요)")
             
-            # 3. 마법의 명령어: 백그라운드 무거운 작업(git, upload)을 시작하기 전에 
-            # 밀려있던 화면 그리기 작업(오버레이 띄우기)을 먼저 강제로 처리하게 만듭니다.
             QApplication.processEvents() 
-            time.sleep(0.5) # 화면이 확실히 그려질 시간 0.5초 부여
+            time.sleep(0.5) 
             
-            # --- 아래는 기존 업데이트 로직 동일 ---
             subprocess.run(["git", "reset", "--hard"], check=True)
             subprocess.run(["git", "pull"], check=True)
             
@@ -400,6 +393,7 @@ class MainApp(SmartSorterUI):
                     card_style = "QFrame { background-color: #2D2D2D; border: 2px solid #404040; border-radius: 12px; }" if self.is_dark_mode else "QFrame { background-color: #F3F4F6; border: 2px solid #D1D5DB; border-radius: 12px; }"
                 self.set_cached_style(card, card_style)
 
+    # ✨ 보태기 모드 해제 시 즉시 UI 제목 복구 로직 추가 ✨
     def toggle_topup_mode(self):
         self.is_topup_mode = not self.is_topup_mode
         if self.is_topup_mode:
@@ -410,6 +404,11 @@ class MainApp(SmartSorterUI):
             
         self.update_topup_ui()
         self.update_setting_ui()
+        
+        # UI 제목 강제 즉시 새로고침
+        is_sim = not (self.serial_thread.serial_port and self.serial_thread.serial_port.is_open)
+        self.update_sim_mode_display(is_sim)
+        
         self.on_data_received(self.raw_weights)
 
     def update_topup_ui(self):
@@ -572,8 +571,8 @@ class MainApp(SmartSorterUI):
                 lbl.setText(f"{w:,} g")
                 self.set_cached_style(lbl, "color: #555555;" if self.is_dark_mode else "color: #9CA3AF;")
                 
+        # ✨ 제목 업데이트 부분 제거 (toggle 함수에서 안전하게 제어함)
         if self.is_topup_mode:
-            self.lbl_sum_title.setText("박스무게(1,2,7,8)")
             self.sum_val_lbl.setText(f"{topup_sum:,} g")
         else:
             self.sum_val_lbl.setText(f"{total:,} g")
