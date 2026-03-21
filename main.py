@@ -8,18 +8,15 @@ import random
 import json
 
 from PyQt5.QtWidgets import QApplication, QMessageBox
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer
 
-from main_ui import SmartSorterUI, PresetDialog
+from main_ui import SmartSorterUI, PresetDialog, CalibrationDialog
 
 # 프로그램의 목표무게, 프리셋 정보를 저장할 파일 경로
 SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
 
 
 class OTAThread(QThread):
-    """
-    프로그램이 켜질 때 화면을 멈추지 않게 뒤에서 몰래 깃허브(서버) 상태를 묻고 오는 스파이 스레드입니다.
-    """
     update_available = pyqtSignal()
 
     def run(self):
@@ -27,18 +24,15 @@ class OTAThread(QThread):
             subprocess.run(["git", "fetch"], timeout=3, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             status = subprocess.run(["git", "status", "-uno"], capture_output=True, text=True)
             if "Your branch is behind" in status.stdout:
-                self.update_available.emit() # 업데이트가 있으면 메인 화면에 신호 발사!
+                self.update_available.emit() 
         except Exception as e:
             print("업데이트 확인 생략 (네트워크 또는 권한 문제):", e)
 
 
 class SerialThread(QThread):
-    """
-    아두이노 로드셀 데이터 수신 및 LED 제어를 담당하는 백그라운드 스레드.
-    메인 UI가 멈추지 않도록 비동기적으로 시리얼 통신을 처리합니다.
-    """
-    data_received = pyqtSignal(list) # 12개 채널의 무게값 리스트를 전달
-    is_simulation = pyqtSignal(bool) # 아두이노 장치 유무 상태 전달
+    data_received = pyqtSignal(list) 
+    is_simulation = pyqtSignal(bool) 
+    system_message = pyqtSignal(str) 
 
     def __init__(self, ports=['/dev/ttyACM0', '/dev/ttyUSB0', 'COM3', 'COM4', 'COM5'], baudrate=115200):
         super().__init__()
@@ -48,8 +42,6 @@ class SerialThread(QThread):
         self.running = True
 
     def run(self):
-        """스레드 실행 루프: 포트 검색 및 데이터 수집"""
-        # 연결 가능한 시리얼 포트 검색
         for p in self.ports:
             try:
                 self.serial_port = serial.Serial(p, self.baudrate, timeout=1)
@@ -68,10 +60,14 @@ class SerialThread(QThread):
         while self.running:
             if self.serial_port and self.serial_port.is_open:
                 try:
-                    # 아두이노에서 들어오는 원시 데이터를 읽어 처리
                     data = self.serial_port.read(max(1, self.serial_port.in_waiting)).decode('utf-8', errors='ignore')
                     if data:
                         buffer += data
+                        if "[SYSTEM] 영점 조절 완료" in buffer:
+                            self.system_message.emit("TARE_DONE")
+                            buffer = buffer.replace("[SYSTEM] 영점 조절 완료! 정상 가동 재개.", "")
+                            buffer = buffer.replace("[SYSTEM] 영점 조절 완료", "")
+
                         while '<' in buffer and '>' in buffer:
                             start = buffer.find('<')
                             end = buffer.find('>', start)
@@ -94,12 +90,10 @@ class SerialThread(QThread):
                         fake_weights.append(0)
                     else: 
                         fake_weights.append(-1)
-                        
                 self.data_received.emit(fake_weights)
                 time.sleep(1) 
 
     def parse_packet(self, packet):
-        """<725,670,...> 형태의 시리얼 문자열을 숫자 리스트로 변환합니다."""
         parts = packet.split(',')
         if len(parts) == 12:
             weights = []
@@ -115,19 +109,14 @@ class SerialThread(QThread):
             self.data_received.emit(weights)
 
     def send_signal(self, indices):
-        """조합에 성공한 트레이의 번호들을 아두이노로 보내 LED를 켭니다."""
         if self.serial_port and self.serial_port.is_open:
             msg = f"<{','.join(map(str, indices))}>\n"
             try:
                 self.serial_port.write(msg.encode('utf-8'))
             except Exception as e:
                 print(f"아두이노 명령 전송 실패: {e}")
-        else:
-            if indices:
-                print(f"[시뮬-LED] 점등 대상 트레이 번호: {indices}")
 
     def stop(self):
-        """프로그램 종료 시 시리얼 연결을 안전하게 해제합니다."""
         self.running = False
         self.wait()
         if self.serial_port and self.serial_port.is_open:
@@ -135,9 +124,6 @@ class SerialThread(QThread):
 
 
 class MainApp(SmartSorterUI):
-    """
-    UI와 데이터를 연결하고 전체적인 선별기 비즈니스 로직을 총괄하는 메인 엔진 클래스.
-    """
     def __init__(self):
         super().__init__()
         if sys.platform == 'win32':
@@ -145,7 +131,8 @@ class MainApp(SmartSorterUI):
         else:
             self.showFullScreen() 
         
-        self.weights = [0] * 12 
+        self.raw_weights = [0] * 12 # 아두이노에서 올라온 순수 원본 데이터 보존용
+        self.weights = [0] * 12     # 파이썬 보정값이 적용된 디스플레이 데이터
         
         self.settings_data = self.load_settings()
         last_state = self.settings_data.get("last_state", {})
@@ -157,20 +144,27 @@ class MainApp(SmartSorterUI):
         self.current_preset_index = last_state.get("current_preset_index", None)
         self.is_topup_mode = last_state.get("is_topup_mode", False)
         
+        # ✨ 새로운 설정 변수 로드: 보정 배율 리스트 & 분동 무게
+        self.cal_multipliers = self.settings_data.get("cal_multipliers", [1.0] * 12)
+        self.cal_ref_weight = self.settings_data.get("cal_ref_weight", 1000)
+        
         self.memo_min_comb = self.min_comb 
+        self.cal_dialog = None
+        self.cal_target_idx = 0
         
         self.setup_logic()
         
         self.tray_cards[0].doubleClicked.connect(QApplication.instance().quit)
+        self.tray_cards[5].doubleClicked.connect(self.show_calibration_dialog) # 6번 카드 더블클릭 보정 연결
         self.tray_cards[6].doubleClicked.connect(self.restart_program) 
         self.tray_cards[11].doubleClicked.connect(self.shutdown_system) 
         
         self.serial_thread = SerialThread()
         self.serial_thread.data_received.connect(self.on_data_received)
         self.serial_thread.is_simulation.connect(self.update_sim_mode_display)
+        self.serial_thread.system_message.connect(self.on_system_message)
         self.serial_thread.start()
         
-        # 화면이 뜨자마자 백그라운드에서 업데이트 확인 시작
         self.start_ota_check()
 
     def start_ota_check(self):
@@ -178,9 +172,7 @@ class MainApp(SmartSorterUI):
         self.ota_thread.update_available.connect(self.prompt_ota_update)
         self.ota_thread.start()
 
-    # ✨ 핵심 업데이트: 파이썬 & 아두이노 메가 2560 펌웨어 동시 업데이트 로직 탑재
     def prompt_ota_update(self):
-        """백그라운드에서 업데이트를 발견하면 팝업창을 띄워 결재를 받습니다."""
         msg_box = QMessageBox(self)
         msg_box.setIcon(QMessageBox.Question)
         msg_box.setWindowTitle("시스템 업데이트 알림")
@@ -189,23 +181,19 @@ class MainApp(SmartSorterUI):
         msg_box.setWindowFlags(msg_box.windowFlags() | Qt.WindowStaysOnTopHint)
         
         if msg_box.exec() == QMessageBox.Yes:
-            # 1단계: 깃허브 최신 코드 강제 적용
             subprocess.run(["git", "reset", "--hard"], check=True)
             subprocess.run(["git", "pull"], check=True)
             
-            # 2단계: 아두이노가 연결되어 있다면 포트를 해제하여 업로드 충돌 방지
             arduino_port = None
             if self.serial_thread.serial_port and self.serial_thread.serial_port.is_open:
                 arduino_port = self.serial_thread.serial_port.port
             self.serial_thread.stop()
             time.sleep(1.5) 
             
-            # 3단계: 아두이노 메가 2560 펌웨어 자동 업로드
             firmware_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "arduino_firmware")
             if arduino_port and os.path.exists(firmware_dir):
                 print(f"[OTA] 아두이노 펌웨어 자동 업데이트 시작 (포트: {arduino_port})")
                 try:
-                    # 테스트로 검증 완료된 명령어 적용!
                     fqbn = "arduino:avr:mega:cpu=atmega2560"
                     compile_cmd = ["arduino-cli", "compile", "--fqbn", fqbn, firmware_dir]
                     upload_cmd = ["arduino-cli", "upload", "-p", arduino_port, "--fqbn", fqbn, firmware_dir]
@@ -214,9 +202,8 @@ class MainApp(SmartSorterUI):
                     subprocess.run(upload_cmd, check=True)
                     print("[OTA] 아두이노 메가 2560 펌웨어 업데이트 완벽 성공!")
                 except Exception as e:
-                    print(f"[OTA] 펌웨어 업로드 실패 (명령어 누락 또는 보드 타입 오류): {e}")
+                    print(f"[OTA] 펌웨어 업로드 실패: {e}")
             
-            # 4단계: 시스템 재시작 (모든 업데이트 반영 완료)
             os.execv(sys.executable, [sys.executable] + sys.argv)
 
     def load_settings(self):
@@ -228,10 +215,14 @@ class MainApp(SmartSorterUI):
                         presets = data.get("presets", [])
                         presets.extend([None] * (8 - len(presets)))
                         data["presets"] = presets
+                    if "cal_multipliers" not in data or len(data["cal_multipliers"]) < 12:
+                        data["cal_multipliers"] = [1.0] * 12
+                    if "cal_ref_weight" not in data:
+                        data["cal_ref_weight"] = 1000
                     return data
             except Exception as e:
                 print(f"설정 불러오기 실패: {e}")
-        return {"last_state": {}, "presets": [None] * 8}
+        return {"last_state": {}, "presets": [None] * 8, "cal_multipliers": [1.0] * 12, "cal_ref_weight": 1000}
 
     def save_settings(self):
         self.settings_data["last_state"] = {
@@ -242,6 +233,9 @@ class MainApp(SmartSorterUI):
             "current_preset_index": self.current_preset_index,
             "is_topup_mode": self.is_topup_mode 
         }
+        self.settings_data["cal_multipliers"] = self.cal_multipliers
+        self.settings_data["cal_ref_weight"] = self.cal_ref_weight
+        
         try:
             with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.settings_data, f, ensure_ascii=False, indent=4)
@@ -275,7 +269,7 @@ class MainApp(SmartSorterUI):
         self.update_topup_ui()
         self.apply_theme() 
         
-        self.btn_tare.clicked.connect(self.send_tare_command)
+        self.btn_tare.clicked.connect(self.send_tare_command) 
         self.btn_register.clicked.connect(self.show_preset_dialog) 
         self.btn_topup.clicked.connect(self.toggle_topup_mode)
 
@@ -294,10 +288,88 @@ class MainApp(SmartSorterUI):
             original_toggle_theme()
             self.combo_card.setStyleSheet(self.get_combo_card_style(highlight=(self.combo_val.text() != "조합실패")))
             self.update_topup_ui()
-            self.on_data_received(self.weights)
+            self.on_data_received(self.raw_weights)
             
         self.btn_theme_toggle.clicked.disconnect() 
         self.btn_theme_toggle.clicked.connect(new_toggle_theme)
+
+    # ✨ 저울 보정 다이얼로그 호출 엔진 ✨
+    def show_calibration_dialog(self):
+        self.cal_dialog = CalibrationDialog(self, is_dark_mode=self.is_dark_mode, ref_weight=self.cal_ref_weight)
+        self.cal_target_idx = 0
+        
+        # 버튼 조작 시 파라미터(mult)에 따라 1g 단위, 길게 누르면 10g 단위 쾌속 조절
+        self.cal_dialog.btn_minus.stepTriggered.connect(lambda mult: self.modify_ref_weight(-1 if mult == 1 else -10))
+        self.cal_dialog.btn_plus.stepTriggered.connect(lambda mult: self.modify_ref_weight(1 if mult == 1 else 10))
+        
+        self.cal_dialog.btn_apply.clicked.connect(self.apply_current_calibration)
+        self.cal_dialog.btn_skip.clicked.connect(self.advance_cal_target)
+        self.cal_dialog.btn_close.clicked.connect(self.cal_dialog.accept)
+        
+        self.cal_dialog.exec_()
+        self.cal_dialog = None
+        self.save_settings()
+
+    def modify_ref_weight(self, delta):
+        self.cal_ref_weight = max(10, self.cal_ref_weight + delta)
+        if self.cal_dialog:
+            self.cal_dialog.lbl_ref_weight.setText(f"무게추: {self.cal_ref_weight:,} g")
+
+    def apply_current_calibration(self):
+        idx = self.cal_target_idx
+        if idx >= 12: return
+        
+        raw_w = self.raw_weights[idx]
+        if raw_w <= 0:
+            self.show_message("저울에 무게가 감지되지 않았습니다.\n분동을 올려주세요.")
+            QTimer.singleShot(1500, self.hide_message)
+            return
+            
+        current_disp = raw_w * self.cal_multipliers[idx]
+        if current_disp > 0:
+            ratio = self.cal_ref_weight / current_disp
+            self.cal_multipliers[idx] *= ratio
+            
+        self.advance_cal_target()
+        self.save_settings() 
+
+    def advance_cal_target(self):
+        self.cal_target_idx += 1
+        self.update_cal_dialog_ui()
+
+    def update_cal_dialog_ui(self):
+        if not self.cal_dialog or not self.cal_dialog.isVisible(): return
+        
+        # 🚨 에러(ERR) 카드 자동 패스(Auto-Skip) 로직
+        while self.cal_target_idx < 12 and self.raw_weights[self.cal_target_idx] == -1:
+            self.cal_target_idx += 1
+            
+        if self.cal_target_idx >= 12:
+            self.show_message("모든 저울 보정이 완료되었습니다.")
+            QTimer.singleShot(2000, self.hide_message)
+            self.cal_dialog.accept()
+            return
+
+        for i in range(12):
+            w = self.raw_weights[i]
+            card = self.cal_dialog.cal_cards[i]
+            lbl = self.cal_dialog.cal_labels[i]
+            
+            if w == -1:
+                lbl.setText("ERR")
+                lbl.setStyleSheet("color: #EF4444;")
+                card.setStyleSheet("QFrame { background-color: #451A1A; border: 2px solid #7F1D1D; border-radius: 12px; }") if self.is_dark_mode else card.setStyleSheet("QFrame { background-color: #FEE2E2; border: 2px solid #FCA5A5; border-radius: 12px; }")
+            else:
+                disp_w = int(w * self.cal_multipliers[i])
+                lbl.setText(f"{disp_w:,} g")
+                lbl.setStyleSheet("color: white;" if self.is_dark_mode else "color: #1F2937;")
+                
+                if i == self.cal_target_idx: # 🌟 파란색 하이라이트!
+                    card.setStyleSheet("QFrame { background-color: #2563EB; border: 3px solid #60A5FA; border-radius: 12px; }")
+                    lbl.setStyleSheet("color: white; font-weight: bold;")
+                else:
+                    card.setStyleSheet("QFrame { background-color: #2D2D2D; border: 2px solid #404040; border-radius: 12px; }") if self.is_dark_mode else card.setStyleSheet("QFrame { background-color: #F3F4F6; border: 2px solid #D1D5DB; border-radius: 12px; }")
+
 
     def toggle_topup_mode(self):
         self.is_topup_mode = not self.is_topup_mode
@@ -309,7 +381,7 @@ class MainApp(SmartSorterUI):
             
         self.update_topup_ui()
         self.update_setting_ui()
-        self.on_data_received(self.weights)
+        self.on_data_received(self.raw_weights)
 
     def update_topup_ui(self):
         if self.is_topup_mode:
@@ -385,10 +457,17 @@ class MainApp(SmartSorterUI):
         self.update_setting_ui()
 
     def send_tare_command(self):
+        self.show_message("영점 조정 중입니다.\n저울에서 손을 떼세요.")
         if self.serial_thread.serial_port and self.serial_thread.serial_port.is_open:
             self.serial_thread.serial_port.write(b"<TARE>\n")
         else:
             print("[시뮬-TARE] 영점 조절 명령 시뮬레이션")
+            QTimer.singleShot(2000, lambda: self.on_system_message("TARE_DONE"))
+
+    def on_system_message(self, msg):
+        if msg == "TARE_DONE":
+            self.show_message("영점 조정이 완료되었습니다.")
+            QTimer.singleShot(2000, self.hide_message) 
 
     def change_setting(self, kind, delta):
         if kind == 'target':
@@ -432,8 +511,23 @@ class MainApp(SmartSorterUI):
             else:
                 return "QFrame#ComboCard { border: 3px solid #E5E7EB; background-color: #FFFFFF; border-radius: 20px; margin: 0px; padding: 0px; }"
                 
-    def on_data_received(self, weights):
-        self.weights = weights
+    def on_data_received(self, raw_weights):
+        self.raw_weights = raw_weights
+        
+        # 🌟 아두이노 로우 데이터에 파이썬 자체 보정 배율 적용!
+        calibrated_weights = []
+        for i, w in enumerate(raw_weights):
+            if w > 0:
+                calibrated_weights.append(int(w * self.cal_multipliers[i]))
+            else:
+                calibrated_weights.append(w)
+                
+        self.weights = calibrated_weights
+        
+        # 보정 팝업이 띄워져 있다면 실시간으로 팝업 데이터도 업데이트
+        if self.cal_dialog and self.cal_dialog.isVisible():
+            self.update_cal_dialog_ui()
+        
         total = 0
         topup_sum = 0
         for i, w in enumerate(self.weights):

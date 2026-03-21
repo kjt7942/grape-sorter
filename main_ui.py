@@ -143,6 +143,118 @@ class PresetDialog(QDialog):
             """)
 
 
+class CalibrationDialog(QDialog):
+    def __init__(self, parent=None, is_dark_mode=True, ref_weight=1000):
+        super().__init__(parent)
+        self.setWindowTitle("저울 보정")
+        self.setFixedSize(800, 480)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.is_dark_mode = is_dark_mode
+        self.ref_weight = ref_weight
+        self.cal_cards = []
+        self.cal_labels = []
+        self.initUI()
+        
+    def initUI(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+        
+        # 1. 상단 컨트롤 영역
+        top_layout = QHBoxLayout()
+        title = QLabel("저울 정밀 보정")
+        title.setFont(QFont(UI_FONT_FAMILY, 20, QFont.Bold))
+        top_layout.addWidget(title)
+        top_layout.addStretch(1)
+        
+        ctrl_layout = QHBoxLayout()
+        self.btn_minus = HoldButton("-")
+        self.btn_minus.setFixedSize(60, 50)
+        self.btn_minus.setFont(QFont(UI_FONT_FAMILY, 24, QFont.Bold))
+        self.btn_minus.setStyleSheet("background-color: #4B5563; color: white; border-radius: 10px;")
+        
+        self.lbl_ref_weight = QLabel(f"무게추: {self.ref_weight} g")
+        self.lbl_ref_weight.setFont(QFont(UI_FONT_FAMILY, 20, QFont.Bold))
+        self.lbl_ref_weight.setAlignment(Qt.AlignCenter)
+        self.lbl_ref_weight.setMinimumWidth(200)
+        
+        self.btn_plus = HoldButton("+")
+        self.btn_plus.setFixedSize(60, 50)
+        self.btn_plus.setFont(QFont(UI_FONT_FAMILY, 24, QFont.Bold))
+        self.btn_plus.setStyleSheet("background-color: #4B5563; color: white; border-radius: 10px;")
+        
+        ctrl_layout.addWidget(self.btn_minus)
+        ctrl_layout.addWidget(self.lbl_ref_weight)
+        ctrl_layout.addWidget(self.btn_plus)
+        top_layout.addLayout(ctrl_layout)
+        layout.addLayout(top_layout)
+        
+        # 2. 6열 2행 중앙 그리드
+        grid = QGridLayout()
+        grid.setSpacing(10)
+        label_numbers = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫']
+        
+        for i in range(12):
+            card = QFrame()
+            card.setMinimumHeight(100)
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(5, 5, 5, 5)
+            
+            lbl_num = QLabel(label_numbers[i])
+            lbl_num.setFont(QFont(UI_FONT_FAMILY, 12))
+            
+            lbl_val = QLabel("0 g")
+            lbl_val.setFont(QFont(UI_FONT_FAMILY, 16, QFont.Bold))
+            lbl_val.setAlignment(Qt.AlignCenter)
+            
+            card_layout.addWidget(lbl_num)
+            card_layout.addWidget(lbl_val, 1)
+            
+            self.cal_cards.append(card)
+            self.cal_labels.append(lbl_val)
+            grid.addWidget(card, i // 6, i % 6) 
+            
+        layout.addLayout(grid)
+        
+        # 3. 하단 버튼 영역
+        bottom_layout = QHBoxLayout()
+        bottom_layout.setSpacing(15)
+        
+        self.btn_apply = QPushButton("현재 파란색 저울 보정 적용")
+        self.btn_apply.setFont(QFont(UI_FONT_FAMILY, 18, QFont.Bold))
+        self.btn_apply.setFixedHeight(60)
+        self.btn_apply.setStyleSheet("background-color: #2563EB; color: white; border-radius: 12px; border: none;")
+        
+        self.btn_skip = QPushButton("건너뛰기")
+        self.btn_skip.setFont(QFont(UI_FONT_FAMILY, 16, QFont.Bold))
+        self.btn_skip.setFixedHeight(60)
+        self.btn_skip.setStyleSheet("background-color: #6B7280; color: white; border-radius: 12px; border: none;")
+        
+        self.btn_close = QPushButton("완료 및 닫기")
+        self.btn_close.setFont(QFont(UI_FONT_FAMILY, 16, QFont.Bold))
+        self.btn_close.setFixedHeight(60)
+        self.btn_close.setStyleSheet("background-color: #EF4444; color: white; border-radius: 12px; border: none;")
+        
+        bottom_layout.addWidget(self.btn_apply, 2)
+        bottom_layout.addWidget(self.btn_skip, 1)
+        bottom_layout.addWidget(self.btn_close, 1)
+        
+        layout.addLayout(bottom_layout)
+        self.apply_theme()
+
+    def apply_theme(self):
+        if self.is_dark_mode:
+            self.setStyleSheet("""
+                QDialog { background-color: #121212; border: 2px solid #333333; }
+                QLabel { color: #E0E0E0; }
+            """)
+        else:
+            self.setStyleSheet("""
+                QDialog { background-color: #FFFFFF; border: 2px solid #E5E7EB; }
+                QLabel { color: #1F2937; }
+            """)
+
+
 class ClickableFrame(QFrame):
     doubleClicked = pyqtSignal()
     
@@ -275,12 +387,13 @@ class SmartSorterUI(QMainWindow):
         self.is_dark_mode = True 
         self.combo_shadow = QGraphicsDropShadowEffect(self) 
         self.initUI()
+        self.init_overlay() 
         self.apply_theme()
         
     def initUI(self):
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget) 
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        main_layout = QHBoxLayout(self.central_widget) 
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(10)
 
@@ -404,6 +517,39 @@ class SmartSorterUI(QMainWindow):
         main_layout.addWidget(left_panel, 10) 
         main_layout.addWidget(right_panel, 8)
 
+    def init_overlay(self):
+        self.overlay_label = QLabel(self.central_widget)
+        self.overlay_label.setAlignment(Qt.AlignCenter)
+        self.overlay_label.setStyleSheet("""
+            background-color: rgba(0, 0, 0, 0.85);
+            color: white;
+            font-size: 28px;
+            font-family: 'NanumBarunGothic', '나눔바른고딕';
+            font-weight: bold;
+            border-radius: 20px;
+            padding: 30px;
+        """)
+        self.overlay_label.hide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'overlay_label'):
+            label_width = 500
+            label_height = 180
+            self.overlay_label.setFixedSize(label_width, label_height)
+            self.overlay_label.move(
+                (self.width() - label_width) // 2,
+                (self.height() - label_height) // 2
+            )
+
+    def show_message(self, text):
+        self.overlay_label.setText(text)
+        self.overlay_label.show()
+        self.overlay_label.raise_()
+
+    def hide_message(self):
+        self.overlay_label.hide()
+
     def create_loadcell_card(self, num_str, weight):
         card = ClickableFrame()
         card.setObjectName("Card")
@@ -412,6 +558,8 @@ class SmartSorterUI(QMainWindow):
         
         if num_str == '①':
             card.watermark_text = "더블클릭:\n프로그램 종료"
+        elif num_str == '⑥':
+            card.watermark_text = "더블클릭:\n저울 보정"
         elif num_str == '⑦':
             card.watermark_text = "더블클릭:\n프로그램 재시작"
         elif num_str == '⑫':
