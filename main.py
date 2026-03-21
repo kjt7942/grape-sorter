@@ -131,8 +131,8 @@ class MainApp(SmartSorterUI):
         else:
             self.showFullScreen() 
         
-        self.raw_weights = [0] * 12 # 아두이노에서 올라온 순수 원본 데이터 보존용
-        self.weights = [0] * 12     # 파이썬 보정값이 적용된 디스플레이 데이터
+        self.raw_weights = [0] * 12 
+        self.weights = [0] * 12     
         
         self.settings_data = self.load_settings()
         last_state = self.settings_data.get("last_state", {})
@@ -144,7 +144,6 @@ class MainApp(SmartSorterUI):
         self.current_preset_index = last_state.get("current_preset_index", None)
         self.is_topup_mode = last_state.get("is_topup_mode", False)
         
-        # ✨ 새로운 설정 변수 로드: 보정 배율 리스트 & 분동 무게
         self.cal_multipliers = self.settings_data.get("cal_multipliers", [1.0] * 12)
         self.cal_ref_weight = self.settings_data.get("cal_ref_weight", 1000)
         
@@ -155,7 +154,7 @@ class MainApp(SmartSorterUI):
         self.setup_logic()
         
         self.tray_cards[0].doubleClicked.connect(QApplication.instance().quit)
-        self.tray_cards[5].doubleClicked.connect(self.show_calibration_dialog) # 6번 카드 더블클릭 보정 연결
+        self.tray_cards[5].doubleClicked.connect(self.show_calibration_dialog) 
         self.tray_cards[6].doubleClicked.connect(self.restart_program) 
         self.tray_cards[11].doubleClicked.connect(self.shutdown_system) 
         
@@ -293,12 +292,12 @@ class MainApp(SmartSorterUI):
         self.btn_theme_toggle.clicked.disconnect() 
         self.btn_theme_toggle.clicked.connect(new_toggle_theme)
 
-    # ✨ 저울 보정 다이얼로그 호출 엔진 ✨
+    # ✨ 저울 보정 다이얼로그 호출 및 쾌속 조절 엔진 ✨
     def show_calibration_dialog(self):
         self.cal_dialog = CalibrationDialog(self, is_dark_mode=self.is_dark_mode, ref_weight=self.cal_ref_weight)
         self.cal_target_idx = 0
         
-        # 버튼 조작 시 파라미터(mult)에 따라 1g 단위, 길게 누르면 10g 단위 쾌속 조절
+        # 🌟 수술 포인트: 클릭 시 1g, 꾹 누르면(mult=5) 10g씩 빠르게 조절!
         self.cal_dialog.btn_minus.stepTriggered.connect(lambda mult: self.modify_ref_weight(-1 if mult == 1 else -10))
         self.cal_dialog.btn_plus.stepTriggered.connect(lambda mult: self.modify_ref_weight(1 if mult == 1 else 10))
         
@@ -311,7 +310,7 @@ class MainApp(SmartSorterUI):
         self.save_settings()
 
     def modify_ref_weight(self, delta):
-        self.cal_ref_weight = max(10, self.cal_ref_weight + delta)
+        self.cal_ref_weight = max(10, self.cal_ref_weight + delta) # 최소 10g 방어
         if self.cal_dialog:
             self.cal_dialog.lbl_ref_weight.setText(f"무게추: {self.cal_ref_weight:,} g")
 
@@ -340,7 +339,7 @@ class MainApp(SmartSorterUI):
     def update_cal_dialog_ui(self):
         if not self.cal_dialog or not self.cal_dialog.isVisible(): return
         
-        # 🚨 에러(ERR) 카드 자동 패스(Auto-Skip) 로직
+        # 🚨 에러(ERR) 카드 자동 패스 로직
         while self.cal_target_idx < 12 and self.raw_weights[self.cal_target_idx] == -1:
             self.cal_target_idx += 1
             
@@ -364,7 +363,7 @@ class MainApp(SmartSorterUI):
                 lbl.setText(f"{disp_w:,} g")
                 lbl.setStyleSheet("color: white;" if self.is_dark_mode else "color: #1F2937;")
                 
-                if i == self.cal_target_idx: # 🌟 파란색 하이라이트!
+                if i == self.cal_target_idx:
                     card.setStyleSheet("QFrame { background-color: #2563EB; border: 3px solid #60A5FA; border-radius: 12px; }")
                     lbl.setStyleSheet("color: white; font-weight: bold;")
                 else:
@@ -514,7 +513,6 @@ class MainApp(SmartSorterUI):
     def on_data_received(self, raw_weights):
         self.raw_weights = raw_weights
         
-        # 🌟 아두이노 로우 데이터에 파이썬 자체 보정 배율 적용!
         calibrated_weights = []
         for i, w in enumerate(raw_weights):
             if w > 0:
@@ -524,7 +522,6 @@ class MainApp(SmartSorterUI):
                 
         self.weights = calibrated_weights
         
-        # 보정 팝업이 띄워져 있다면 실시간으로 팝업 데이터도 업데이트
         if self.cal_dialog and self.cal_dialog.isVisible():
             self.update_cal_dialog_ui()
         
