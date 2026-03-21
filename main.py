@@ -166,7 +166,6 @@ class MainApp(SmartSorterUI):
         
         self.start_ota_check()
 
-    # ✨ 핵심 최적화 함수: 렌더링 부하 90% 감소 
     def set_cached_style(self, widget, style_str):
         if getattr(widget, '_cached_style', None) != style_str:
             widget.setStyleSheet(style_str)
@@ -177,15 +176,41 @@ class MainApp(SmartSorterUI):
         self.ota_thread.update_available.connect(self.prompt_ota_update)
         self.ota_thread.start()
 
+    # ✨ 수술: OTA 팝업 디자인 강제 고정 및 로딩 피드백 추가
     def prompt_ota_update(self):
         msg_box = QMessageBox(self)
-        msg_box.setIcon(QMessageBox.Question)
+        msg_box.setIcon(QMessageBox.Information)
         msg_box.setWindowTitle("시스템 업데이트 알림")
-        msg_box.setText("새로운 시스템(및 아두이노 펌웨어) 업데이트가 발견되었습니다.\n적용하시겠습니까?")
+        msg_box.setText("새로운 시스템 업데이트가 발견되었습니다.\n지금 바로 적용하시겠습니까?")
+        
+        # 1. 팝업창 디자인 강제 고정 (투명도/글자색 충돌 원천 차단)
+        msg_box.setStyleSheet("""
+            QMessageBox { background-color: #2D2D2D; }
+            QLabel { color: #FFFFFF; font-size: 18px; font-weight: bold; }
+            QPushButton { 
+                background-color: #2563EB; color: white; 
+                font-size: 16px; font-weight: bold; 
+                padding: 10px 20px; border-radius: 8px; min-width: 100px; 
+            }
+            QPushButton:hover { background-color: #1D4ED8; }
+        """)
+        
         msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg_box.button(QMessageBox.Yes).setText("예 (적용하기)")
+        msg_box.button(QMessageBox.No).setText("아니오 (나중에)")
         msg_box.setWindowFlags(msg_box.windowFlags() | Qt.WindowStaysOnTopHint)
         
+        # 사용자가 '예'를 눌렀을 때
         if msg_box.exec() == QMessageBox.Yes:
+            # 2. 화면이 멈추기 전에 사용자에게 큼지막한 오버레이로 피드백 제공!
+            self.show_message("🚀 시스템 업데이트 진행 중...\n절대 전원을 끄지 마세요! (약 15초 소요)")
+            
+            # 3. 마법의 명령어: 백그라운드 무거운 작업(git, upload)을 시작하기 전에 
+            # 밀려있던 화면 그리기 작업(오버레이 띄우기)을 먼저 강제로 처리하게 만듭니다.
+            QApplication.processEvents() 
+            time.sleep(0.5) # 화면이 확실히 그려질 시간 0.5초 부여
+            
+            # --- 아래는 기존 업데이트 로직 동일 ---
             subprocess.run(["git", "reset", "--hard"], check=True)
             subprocess.run(["git", "pull"], check=True)
             
