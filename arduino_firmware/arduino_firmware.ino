@@ -4,7 +4,8 @@
 const int LOADCELL_COUNT = 12;
 const int SCK_PIN = 2; 
 const int DT_PINS[LOADCELL_COUNT] = {22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33}; 
-const int LED_PINS[LOADCELL_COUNT] = {3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}; 
+// --- 테스트중 샘플 핀 설정 ---
+const int LED_PINS[LOADCELL_COUNT] = {3, 4, 5, 6, 36, 37, 9, 10, 11, 12, 34, 35};
 
 // --- 영점 및 '개별' 보정 설정 ---
 float calFactors[LOADCELL_COUNT] = {
@@ -36,12 +37,14 @@ void readSensors(long* targetArray, bool* successArray);
 void performTare();
 
 void setup() {
+  delay(1000); // 🌟 필수 추가: 전원 인가 후 로드셀이 깨어날 때까지 1초 대기
   Serial.begin(115200);
   pinMode(SCK_PIN, OUTPUT);
   digitalWrite(SCK_PIN, LOW);
   
   for(int i = 0; i < LOADCELL_COUNT; i++) {
-    pinMode(DT_PINS[i], INPUT);
+    // 🚨 핵심 수술: 아두이노 내부에 5V 저항을 강제로 연결하여 노이즈 원천 차단!
+    pinMode(DT_PINS[i], INPUT_PULLUP); 
     pinMode(LED_PINS[i], OUTPUT);
     digitalWrite(LED_PINS[i], LOW);
   }
@@ -101,17 +104,15 @@ void loop() {
 
   for (int i = 0; i < LOADCELL_COUNT; i++) {
     if (isIsolated[i]) {
-      // 이미 격리된 센서는 무시 (ERR 출력만 유지)
       continue;
     }
 
     if (successArray[i]) {
-      errorCount[i] = 0; // 정상 통신 시 카운터 즉시 초기화
+      errorCount[i] = 0; 
     } else {
       errorCount[i]++;
       if (errorCount[i] >= 5) {
-        isIsolated[i] = true; // 5번 연속 실패 시 즉시 블랙리스트 격리!
-        // 격리되는 순간 전체 속도는 다시 정상으로 빨라집니다.
+        isIsolated[i] = true; 
       }
     }
   }
@@ -119,7 +120,6 @@ void loop() {
   // 4. 라즈베리파이로 데이터 송신
   Serial.print("<");
   for (int i = 0; i < LOADCELL_COUNT; i++) {
-    // 격리되지 않았고, 이번 턴에 성공한 데이터만 출력
     if (!isIsolated[i] && successArray[i]) {
       float weight = (rawValues[i] - offsets[i]) / calFactors[i];
 
@@ -158,7 +158,6 @@ void loop() {
 
   for (int i = 0; i < LOADCELL_COUNT; i++) {
     if (isIsolated[i]) {
-      // 5진 아웃으로 격리된 채널은 무조건 비상 깜빡임!
       digitalWrite(LED_PINS[i], blinkState ? HIGH : LOW);
     } else {
       digitalWrite(LED_PINS[i], ledCommandState[i] ? HIGH : LOW);
@@ -172,7 +171,6 @@ void loop() {
 void performTare() {
   Serial.println("\n[SYSTEM] 영점 조절(TARE) 및 에러 초기화 시작...");
   
-  // TARE 명령을 받으면 모든 에러 카운트와 격리 상태를 전면 초기화합니다. (부활)
   for(int i = 0; i < LOADCELL_COUNT; i++) {
     errorCount[i] = 0;
     isIsolated[i] = false;
@@ -203,13 +201,13 @@ void performTare() {
   Serial.println("[SYSTEM] 영점 조절 완료! 정상 가동 재개.");
 }
 
-// --- 🌟 개별 성공 여부를 추적하는 동시 읽기 함수 🌟 ---
+// --- 🌟 개선된 초고속 동시 읽기 함수 (60us 수면 버그 원천 차단) 🌟 ---
 void readSensors(long* targetArray, bool* successArray) {
   unsigned long startTime = millis();
   bool allReady = false;
   
-  // 격리되지 않은(살아있는) 센서들만 준비되었는지 확인
-  while (millis() - startTime < 100) {
+  // 센서들이 준비될 때까지 대기
+  while (millis() - startTime < 150) { 
     allReady = true;
     for (int i = 0; i < LOADCELL_COUNT; i++) {
       if (!isIsolated[i] && digitalRead(DT_PINS[i]) == HIGH) { 
@@ -220,7 +218,7 @@ void readSensors(long* targetArray, bool* successArray) {
     if (allReady) break;
   }
 
-  // 누가 성공적으로 준비되었는지 개별적으로 기록
+  // 성공적으로 준비된 녀석들 기록
   for (int i = 0; i < LOADCELL_COUNT; i++) {
     if (!isIsolated[i] && digitalRead(DT_PINS[i]) == LOW) {
       successArray[i] = true;
@@ -229,19 +227,48 @@ void readSensors(long* targetArray, bool* successArray) {
     }
   }
 
-  // 살아있는 센서들의 싱크를 맞추기 위해 무조건 25펄스는 발생시킴
   long values[LOADCELL_COUNT] = {0};
+  
+  // 24번의 펄스를 발생시켜 데이터를 동시에 빨아들임
   for (int i = 0; i < 24; i++) {
-    digitalWrite(SCK_PIN, HIGH); delayMicroseconds(1);
-    for (int j = 0; j < LOADCELL_COUNT; j++) {
-      values[j] = (values[j] << 1) | digitalRead(DT_PINS[j]);
-    }
-    digitalWrite(SCK_PIN, LOW); delayMicroseconds(1);
+    digitalWrite(SCK_PIN, HIGH); 
+    delayMicroseconds(1);       // 1. 아주 짧게 전기를 쏜다 (1마이크로초)
+    digitalWrite(SCK_PIN, LOW); // 2. 🚨 즉시 끈다! (수면 모드 절대 진입 불가)
+
+    // 3. 전기가 꺼진 안전한 상태에서 느긋하게 12개의 핀을 다 읽는다!
+    int b0  = digitalRead(DT_PINS[0]);
+    int b1  = digitalRead(DT_PINS[1]);
+    int b2  = digitalRead(DT_PINS[2]);
+    int b3  = digitalRead(DT_PINS[3]);
+    int b4  = digitalRead(DT_PINS[4]);
+    int b5  = digitalRead(DT_PINS[5]);
+    int b6  = digitalRead(DT_PINS[6]);
+    int b7  = digitalRead(DT_PINS[7]);
+    int b8  = digitalRead(DT_PINS[8]);
+    int b9  = digitalRead(DT_PINS[9]);
+    int b10 = digitalRead(DT_PINS[10]);
+    int b11 = digitalRead(DT_PINS[11]);
+
+    // 읽은 비트를 합친다
+    values[0]  = (values[0]  << 1) | b0;
+    values[1]  = (values[1]  << 1) | b1;
+    values[2]  = (values[2]  << 1) | b2;
+    values[3]  = (values[3]  << 1) | b3;
+    values[4]  = (values[4]  << 1) | b4;
+    values[5]  = (values[5]  << 1) | b5;
+    values[6]  = (values[6]  << 1) | b6;
+    values[7]  = (values[7]  << 1) | b7;
+    values[8]  = (values[8]  << 1) | b8;
+    values[9]  = (values[9]  << 1) | b9;
+    values[10] = (values[10] << 1) | b10;
+    values[11] = (values[11] << 1) | b11;
   }
   
+  // 마지막 25번째 펄스 (다음 데이터를 위해 필수)
   digitalWrite(SCK_PIN, HIGH); delayMicroseconds(1);
   digitalWrite(SCK_PIN, LOW); delayMicroseconds(1);
 
+  // 음수 처리 등 최종 마무리
   for (int i = 0; i < LOADCELL_COUNT; i++) {
     if (successArray[i]) {
       if (values[i] & 0x800000) values[i] |= 0xFF000000; 
