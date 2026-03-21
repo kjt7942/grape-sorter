@@ -153,9 +153,11 @@ class MainApp(SmartSorterUI):
         
         self.setup_logic()
         
+        # 🌟 수술: 각 카드별 워터마크 기능 완벽 매칭
         self.tray_cards[0].doubleClicked.connect(QApplication.instance().quit)
         self.tray_cards[5].doubleClicked.connect(self.show_calibration_dialog) 
         self.tray_cards[6].doubleClicked.connect(self.restart_program) 
+        self.tray_cards[10].doubleClicked.connect(self.reboot_system) # 11번 카드: 리눅스 재부팅
         self.tray_cards[11].doubleClicked.connect(self.shutdown_system) 
         
         self.serial_thread = SerialThread()
@@ -275,6 +277,12 @@ class MainApp(SmartSorterUI):
         self.serial_thread.stop()
         os.execv(sys.executable, [sys.executable] + sys.argv) 
 
+    # 🌟 추가된 기계(OS) 전체 재부팅 기능
+    def reboot_system(self):
+        self.save_settings()
+        self.serial_thread.stop()
+        os.system("sudo reboot")
+
     def shutdown_system(self):
         self.save_settings()
         self.serial_thread.stop()
@@ -393,7 +401,6 @@ class MainApp(SmartSorterUI):
                     card_style = "QFrame { background-color: #2D2D2D; border: 2px solid #404040; border-radius: 12px; }" if self.is_dark_mode else "QFrame { background-color: #F3F4F6; border: 2px solid #D1D5DB; border-radius: 12px; }"
                 self.set_cached_style(card, card_style)
 
-    # ✨ 보태기 모드 해제 시 즉시 UI 제목 복구 로직 추가 ✨
     def toggle_topup_mode(self):
         self.is_topup_mode = not self.is_topup_mode
         if self.is_topup_mode:
@@ -405,10 +412,8 @@ class MainApp(SmartSorterUI):
         self.update_topup_ui()
         self.update_setting_ui()
         
-        # UI 제목 강제 즉시 새로고침
         is_sim = not (self.serial_thread.serial_port and self.serial_thread.serial_port.is_open)
         self.update_sim_mode_display(is_sim)
-        
         self.on_data_received(self.raw_weights)
 
     def update_topup_ui(self):
@@ -571,7 +576,6 @@ class MainApp(SmartSorterUI):
                 lbl.setText(f"{w:,} g")
                 self.set_cached_style(lbl, "color: #555555;" if self.is_dark_mode else "color: #9CA3AF;")
                 
-        # ✨ 제목 업데이트 부분 제거 (toggle 함수에서 안전하게 제어함)
         if self.is_topup_mode:
             self.sum_val_lbl.setText(f"{topup_sum:,} g")
         else:

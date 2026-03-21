@@ -160,7 +160,6 @@ class CalibrationDialog(QDialog):
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(10)
         
-        # 1. 상단 컨트롤 영역
         top_layout = QHBoxLayout()
         title = QLabel("저울 정밀 보정")
         title.setFont(QFont(UI_FONT_FAMILY, 20, QFont.Bold))
@@ -189,7 +188,6 @@ class CalibrationDialog(QDialog):
         top_layout.addLayout(ctrl_layout)
         layout.addLayout(top_layout)
         
-        # 2. 6열 2행 중앙 그리드
         grid = QGridLayout()
         grid.setSpacing(10)
         label_numbers = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫']
@@ -216,7 +214,6 @@ class CalibrationDialog(QDialog):
             
         layout.addLayout(grid)
         
-        # 3. 하단 버튼 영역
         bottom_layout = QHBoxLayout()
         bottom_layout.setSpacing(15)
         
@@ -534,7 +531,8 @@ class SmartSorterUI(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'overlay_label'):
-            label_width = 500
+            # 🌟 수술: 메시지가 가로로 잘리지 않도록 폭을 500에서 700으로 시원하게 늘림
+            label_width = 700
             label_height = 180
             self.overlay_label.setFixedSize(label_width, label_height)
             self.overlay_label.move(
@@ -556,12 +554,15 @@ class SmartSorterUI(QMainWindow):
         card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         card.setMinimumHeight(50)
         
+        # 🌟 수술: 11번 카드 워터마크에 "다시시작" 기능 추가 안내
         if num_str == '①':
             card.watermark_text = "더블클릭:\n프로그램 종료"
         elif num_str == '⑥':
             card.watermark_text = "더블클릭:\n저울 보정"
         elif num_str == '⑦':
             card.watermark_text = "더블클릭:\n프로그램 재시작"
+        elif num_str == '⑪':
+            card.watermark_text = "더블클릭:\n다시시작"
         elif num_str == '⑫':
             card.watermark_text = "더블클릭:\n시스템 종료"
 
