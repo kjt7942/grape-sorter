@@ -2,7 +2,7 @@
 
 # --- 사용자 설정 ---
 # ⚠️ 주의: 실제 이미지 파일이 있는 절대경로로 수정하세요!
-IMAGE_PATH="/home/pi/grape-sorter/boot_image.png"
+IMAGE_PATH="/home/user/grape-sorter/bootimg.png"
 THEME_NAME="grapesorter"
 
 if [[ $EUID -ne 0 ]]; then
