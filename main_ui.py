@@ -210,7 +210,12 @@ class CalibrationDialog(QDialog):
             
             self.cal_cards.append(card)
             self.cal_labels.append(lbl_val)
-            grid.addWidget(card, i // 6, i % 6) 
+            
+            # 🌟 수술 포인트: 행(Row) 순서 뒤집기
+            # 1~6번(i=0~5)은 1행(아래), 7~12번(i=6~11)은 0행(위)으로 배치
+            row = 1 - (i // 6)
+            col = i % 6
+            grid.addWidget(card, row, col) 
             
         layout.addLayout(grid)
         
@@ -531,7 +536,6 @@ class SmartSorterUI(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'overlay_label'):
-            # 🌟 수술: 메시지가 가로로 잘리지 않도록 폭을 500에서 700으로 시원하게 늘림
             label_width = 700
             label_height = 180
             self.overlay_label.setFixedSize(label_width, label_height)
@@ -554,7 +558,6 @@ class SmartSorterUI(QMainWindow):
         card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         card.setMinimumHeight(50)
         
-        # 🌟 수술: 11번 카드 워터마크에 "다시시작" 기능 추가 안내
         if num_str == '①':
             card.watermark_text = "더블클릭:\n프로그램 종료"
         elif num_str == '⑥':
