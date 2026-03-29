@@ -40,6 +40,7 @@ class SerialThread(QThread):
         self.baudrate = baudrate
         self.serial_port = None
         self.running = True
+        self.sim_weights = [0] * 12
 
     def run(self):
         for p in self.ports:
@@ -52,6 +53,9 @@ class SerialThread(QThread):
                 
         if not self.serial_port:
             print("아두이노 장치 없음: 시뮬레이션 모드 활성화")
+            for i in range(12):
+                if random.random() > 0.1:
+                    self.sim_weights[i] = random.randint(500, 1000)
             self.is_simulation.emit(True)
         else:
             self.is_simulation.emit(False)
@@ -81,16 +85,10 @@ class SerialThread(QThread):
                     print(f"시리얼 통신 오류 발생: {e}")
                     time.sleep(1)
             else:
-                fake_weights = []
-                for _ in range(12):
-                    chance = random.random()
-                    if chance > 0.01: 
-                        fake_weights.append(random.randint(500, 1000))
-                    elif chance > 0.005: 
-                        fake_weights.append(0)
-                    else: 
-                        fake_weights.append(-1)
-                self.data_received.emit(fake_weights)
+                for i in range(12):
+                    if self.sim_weights[i] == 0 and random.random() < 0.05:
+                        self.sim_weights[i] = random.randint(500, 1000)
+                self.data_received.emit(list(self.sim_weights))
                 time.sleep(1) 
 
     def parse_packet(self, packet):
@@ -150,6 +148,10 @@ class MainApp(SmartSorterUI):
         self.memo_min_comb = self.min_comb 
         self.cal_dialog = None
         self.cal_target_idx = 0
+        
+        self.locked_combo = None
+        self.locked_sum = 0
+        self.original_locked_indices = []
         
         self.setup_logic()
         
@@ -325,6 +327,36 @@ class MainApp(SmartSorterUI):
         self.btn_theme_toggle.clicked.disconnect() 
         self.btn_theme_toggle.clicked.connect(new_toggle_theme)
 
+        self.combo_card.clicked.connect(self.force_unlock)
+        for i in range(12):
+            self.tray_cards[i].clicked.connect(lambda idx=i: self.on_tray_clicked(idx))
+
+    def force_unlock(self):
+        # 1. 잠금 초기화
+        self.locked_combo = None
+        self.locked_sum = 0
+        self.original_locked_indices = []
+        
+        # 2. 시뮬레이션 모드일 경우 전체 리필
+        if not (self.serial_thread.serial_port and self.serial_thread.serial_port.is_open):
+            for i in range(12):
+                self.serial_thread.sim_weights[i] = random.randint(500, 1000)
+            self.serial_thread.data_received.emit(list(self.serial_thread.sim_weights))
+            self.show_message("모든 저울의 무게가 무작위로 변경되었습니다.")
+        else:
+            self.show_message("조합 연산 잠금이 해제되었습니다.")
+            
+        QTimer.singleShot(1000, self.hide_message)
+        self.on_data_received(self.raw_weights)
+
+    def on_tray_clicked(self, idx):
+        if not (self.serial_thread.serial_port and self.serial_thread.serial_port.is_open):
+            if self.serial_thread.sim_weights[idx] > 0:
+                self.serial_thread.sim_weights[idx] = 0
+            else:
+                self.serial_thread.sim_weights[idx] = random.randint(500, 1000)
+            self.serial_thread.data_received.emit(list(self.serial_thread.sim_weights))
+
     def show_calibration_dialog(self):
         self.cal_dialog = CalibrationDialog(self, is_dark_mode=self.is_dark_mode, ref_weight=self.cal_ref_weight)
         self.cal_target_idx = 0
@@ -403,6 +435,9 @@ class MainApp(SmartSorterUI):
 
     def toggle_topup_mode(self):
         self.is_topup_mode = not self.is_topup_mode
+        self.locked_combo = None
+        self.locked_sum = 0
+        self.original_locked_indices = []
         if self.is_topup_mode:
             self.memo_min_comb = self.min_comb
             self.min_comb = 1 
@@ -472,6 +507,9 @@ class MainApp(SmartSorterUI):
             self.min_comb = p['min_comb']
             self.max_comb = p['max_comb']
             self.current_preset_index = index 
+            self.locked_combo = None
+            self.locked_sum = 0
+            self.original_locked_indices = []
             self.update_setting_ui()
             if dialog: dialog.accept() 
 
@@ -490,6 +528,9 @@ class MainApp(SmartSorterUI):
         self.update_setting_ui()
 
     def send_tare_command(self):
+        self.locked_combo = None
+        self.locked_sum = 0
+        self.original_locked_indices = []
         self.show_message("영점 조정 중입니다.\n저울에서 손을 떼세요.")
         if self.serial_thread.serial_port and self.serial_thread.serial_port.is_open:
             self.serial_thread.serial_port.write(b"<TARE>\n")
@@ -503,6 +544,9 @@ class MainApp(SmartSorterUI):
             QTimer.singleShot(2000, self.hide_message) 
 
     def change_setting(self, kind, delta):
+        self.locked_combo = None
+        self.locked_sum = 0
+        self.original_locked_indices = []
         if kind == 'target':
             self.target_weight = max(100, self.target_weight + delta) 
         elif kind == 'min':
@@ -588,14 +632,38 @@ class MainApp(SmartSorterUI):
         min_c = self.min_comb
         max_c = self.max_comb
         
-        valid_items = []
         topup_sum = 0
-        
+        if self.is_topup_mode:
+            for i in [0, 1, 6, 7]:
+                if self.weights[i] > 0:
+                    topup_sum += self.weights[i]
+
+        if self.locked_combo is not None:
+            still_locked = []
+            for item in self.locked_combo:
+                idx = item[0] - 1
+                if self.weights[idx] > 0:
+                    still_locked.append((item[0], self.weights[idx]))
+            
+            if not still_locked:
+                if not (self.serial_thread.serial_port and self.serial_thread.serial_port.is_open):
+                    for idx_1based in self.original_locked_indices:
+                        idx = idx_1based - 1
+                        self.serial_thread.sim_weights[idx] = random.randint(500, 1000)
+                    QTimer.singleShot(100, lambda: self.serial_thread.data_received.emit(list(self.serial_thread.sim_weights)))
+                    
+                self.locked_combo = None
+                self.locked_sum = 0
+                self.original_locked_indices = []
+            else:
+                self.locked_combo = still_locked
+                self.render_combo_result(self.locked_combo, self.locked_sum, topup_sum)
+                return
+                
+        valid_items = []
         for i, w in enumerate(self.weights):
             if w > 0:
-                if self.is_topup_mode and i in [0, 1, 6, 7]: 
-                    topup_sum += w
-                else:
+                if not (self.is_topup_mode and i in [0, 1, 6, 7]):
                     valid_items.append((i+1, w)) 
         
         current_target = target - topup_sum if self.is_topup_mode else target
@@ -618,7 +686,15 @@ class MainApp(SmartSorterUI):
                         if best_combo is None or len(combo) > len(best_combo):
                             best_combo = combo
                             best_sum = combo_sum
+                            
+        if best_combo is not None:
+            self.locked_combo = best_combo
+            self.locked_sum = best_sum
+            self.original_locked_indices = [item[0] for item in best_combo]
+            
+        self.render_combo_result(best_combo, best_sum, topup_sum)
 
+    def render_combo_result(self, best_combo, best_sum, topup_sum):
         for i in range(12):
             is_topup_tray = self.is_topup_mode and i in [0, 1, 6, 7]
             is_combo_tray = best_combo is not None and (i+1) in [item[0] for item in best_combo]
@@ -635,10 +711,15 @@ class MainApp(SmartSorterUI):
         if best_combo is not None:
             final_sum = best_sum + (topup_sum if self.is_topup_mode else 0)
             self.combo_val.setText(f"{final_sum:,} g")
+            if self.locked_combo is not None:
+                self.lbl_combo_title.setText("조합잠금")
+            else:
+                self.lbl_combo_title.setText("조합무게")
             self.set_cached_style(self.combo_card, self.get_combo_card_style(highlight=True))
             self.serial_thread.send_signal([item[0] for item in best_combo]) 
         else:
             self.combo_val.setText("조합실패")
+            self.lbl_combo_title.setText("조합무게")
             self.set_cached_style(self.combo_card, self.get_combo_card_style(highlight=False))
             self.serial_thread.send_signal([])
 

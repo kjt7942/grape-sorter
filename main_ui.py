@@ -259,10 +259,16 @@ class CalibrationDialog(QDialog):
 
 class ClickableFrame(QFrame):
     doubleClicked = pyqtSignal()
+    clicked = pyqtSignal()
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.watermark_text = ""
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event):
         self.doubleClicked.emit()
@@ -461,7 +467,7 @@ class SmartSorterUI(QMainWindow):
         
         right_layout.addStretch(2) 
 
-        self.combo_card = QFrame()
+        self.combo_card = ClickableFrame()
         self.combo_card.setObjectName("ComboCard")
         self.combo_card.setMinimumHeight(100) 
 
@@ -473,16 +479,16 @@ class SmartSorterUI(QMainWindow):
         combo_layout = QHBoxLayout(self.combo_card)
         combo_layout.setContentsMargins(25, 20, 25, 20) 
         
-        combo_title = QLabel("조합무게")
-        combo_title.setObjectName("ComboTitle")
-        combo_title.setFont(QFont(UI_FONT_FAMILY, 18, QFont.Bold)) 
+        self.lbl_combo_title = QLabel("조합무게")
+        self.lbl_combo_title.setObjectName("ComboTitle")
+        self.lbl_combo_title.setFont(QFont(UI_FONT_FAMILY, 18, QFont.Bold)) 
         
         self.combo_val = QLabel("0 g")
         self.combo_val.setObjectName("ComboValue")
         self.combo_val.setFont(QFont(UI_FONT_FAMILY, 36, QFont.Bold)) 
         self.combo_val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         
-        combo_layout.addWidget(combo_title)
+        combo_layout.addWidget(self.lbl_combo_title)
         combo_layout.addWidget(self.combo_val)
         
         right_layout.addWidget(self.combo_card)
