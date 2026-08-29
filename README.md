@@ -39,7 +39,8 @@ python3 main.py
 | `main.py` | 시리얼 통신, 조합 연산, 설정/실적 저장, OTA |
 | `main_ui.py` | PyQt5 화면 정의 (메인 + 다이얼로그 3종) |
 | `arduino_firmware/` | 아두이노 메가 펌웨어 (로드셀 읽기, LED, 영점) |
-| `test_sorter.py` | 자체 점검. PyQt5 없이 실행되며 OTA 검증 관문으로도 쓰임 |
+| `test_sorter.py` | 조합 로직 자체 점검. PyQt5 없이 실행되며 OTA 검증 관문으로도 쓰임 |
+| `tests/` | 화면·시작절차·조립단계별 테스트. [tests/README.md](tests/README.md) 참고 |
 | `setup_kiosk.sh` | 라즈베리파이 키오스크 환경 구축 |
 | `setup_boot_screen.sh` | 부팅 스플래시(Plymouth) 설정 |
 
@@ -54,6 +55,12 @@ python3 main.py
 
 ## 테스트
 
+라즈베리파이나 아두이노 없이 개발 PC에서 전부 돕니다.
+
 ```bash
-python3 test_sorter.py
+python3 tests/run_all.py         # 전체 (7개 스위트)
+python3 tests/render_screens.py  # 모든 화면을 PNG 로 저장
+python3 test_sorter.py           # 조합 로직만 (OTA 관문과 동일)
 ```
+
+무엇을 지키는지는 [tests/README.md](tests/README.md) 에 정리돼 있습니다.

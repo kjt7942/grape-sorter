@@ -289,10 +289,16 @@ tail -n 100 ~/grape-sorter/sorter.log      # 경로는 설치 위치에 맞게
 초기화됐다면 `sorter.log`에서 `설정 불러오기 실패` / `백업에서 설정을 복구했습니다` 줄을 확인하세요.
 
 ### 5-7. 자체 점검 실행
-조합 로직을 건드린 뒤에는 PyQt5 없이도 돌아가는 점검을 실행하세요.
+아두이노나 실기 없이 개발 PC에서 전부 돌릴 수 있습니다.
+
 ```
-python3 test_sorter.py
+python3 tests/run_all.py         # 전체
+python3 test_sorter.py           # 조합 로직만 (OTA 관문과 동일)
+python3 tests/render_screens.py  # 모든 화면을 PNG 로 저장해 눈으로 확인
 ```
+
+조합 로직을 수정하면 `test_sorter.py` 를 반드시 함께 갱신하세요. OTA 가 이 파일로
+새 코드를 검증하고, 실패하면 되돌립니다. 자세한 내용은 `tests/README.md` 참고.
 
 ## 6. 보안 유의사항
 
