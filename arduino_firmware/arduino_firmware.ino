@@ -1,4 +1,5 @@
-#include <string.h> 
+#include <string.h>
+#include "firmware_version.h"
 
 // --- 핀 설정 ---
 const int LOADCELL_COUNT = 12;
@@ -48,6 +49,8 @@ void setup() {
   }
 
   performTare();
+  Serial.print("[VER] ");
+  Serial.println(FIRMWARE_VERSION);
   Serial.println("--- 24시간 무중단 모드 (5진 아웃 격리 시스템 가동 중) ---");
 }
 

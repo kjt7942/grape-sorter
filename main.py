@@ -221,17 +221,47 @@ class MainApp(SmartSorterUI):
             if arduino_port and os.path.exists(firmware_dir):
                 print(f"[OTA] 아두이노 펌웨어 자동 업데이트 시작 (포트: {arduino_port})")
                 try:
+                    expected_version = subprocess.run(
+                        ["git", "rev-parse", "--short", "HEAD"],
+                        check=True, capture_output=True, text=True
+                    ).stdout.strip()
+
+                    version_header = os.path.join(firmware_dir, "firmware_version.h")
+                    with open(version_header, 'w', encoding='utf-8') as f:
+                        f.write(f'#define FIRMWARE_VERSION "{expected_version}"\n')
+
                     fqbn = "arduino:avr:mega:cpu=atmega2560"
                     compile_cmd = ["arduino-cli", "compile", "--fqbn", fqbn, firmware_dir]
                     upload_cmd = ["arduino-cli", "upload", "-p", arduino_port, "--fqbn", fqbn, firmware_dir]
-                    
+
                     subprocess.run(compile_cmd, check=True)
                     subprocess.run(upload_cmd, check=True)
-                    print("[OTA] 아두이노 메가 2560 펌웨어 업데이트 완벽 성공!")
+
+                    if self.check_firmware_version(arduino_port, expected_version):
+                        print(f"[OTA] 아두이노 메가 2560 펌웨어 업데이트 완벽 성공! (버전: {expected_version})")
+                    else:
+                        print(f"[OTA] 경고: 업로드는 완료됐지만 펌웨어 버전({expected_version}) 확인에 실패했습니다.")
                 except Exception as e:
                     print(f"[OTA] 펌웨어 업로드 실패: {e}")
-            
+
             os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    def check_firmware_version(self, port, expected_version, timeout_sec=5):
+        try:
+            with serial.Serial(port, 115200, timeout=1) as ser:
+                start = time.time()
+                buffer = ""
+                while time.time() - start < timeout_sec:
+                    data = ser.read(max(1, ser.in_waiting)).decode('utf-8', errors='ignore')
+                    if data:
+                        buffer += data
+                        if "[VER]" in buffer and "\n" in buffer.split("[VER]", 1)[1]:
+                            line = buffer.split("[VER]", 1)[1].splitlines()[0].strip()
+                            return line == expected_version
+            return False
+        except Exception as e:
+            print(f"[OTA] 펌웨어 버전 확인 중 오류: {e}")
+            return False
 
     def load_settings(self):
         if os.path.exists(SETTINGS_FILE):
