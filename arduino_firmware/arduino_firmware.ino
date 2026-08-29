@@ -3,10 +3,8 @@
 // --- 핀 설정 ---
 const int LOADCELL_COUNT = 12;
 const int SCK_PIN = 2; 
-const int DT_PINS[LOADCELL_COUNT] = {22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33}; 
-// --- 테스트중 샘플 핀 설정 ---
-const int LED_PINS[LOADCELL_COUNT] = {3, 4, 5, 6, 36, 37, 9, 10, 11, 12, 34, 35};
-
+const int DT_PINS[LOADCELL_COUNT]  = {24, 25, 28, 29, 32, 33, 22, 23, 26, 27, 30, 31};
+const int LED_PINS[LOADCELL_COUNT] = { 5,  6,  9, 10, 13, 14,  3,  4,  7,  8, 11, 12};
 // --- 영점 및 '개별' 보정 설정 ---
 float calFactors[LOADCELL_COUNT] = {
   424.0, 425.5, 423.8, 424.2, 426.0, 422.9, 
