@@ -63,8 +63,13 @@ void loop() {
       cmdReady = true;
       break; 
     } 
-    else if (c != '\r' && cmdIndex < MAX_CMD_LEN - 1) {
-      cmdBuffer[cmdIndex++] = c;
+    else if (c != '\r') {
+      if (cmdIndex < MAX_CMD_LEN - 1) {
+        cmdBuffer[cmdIndex++] = c;
+      } else {
+        // 개행 없이 버퍼를 넘긴 쓰레기 입력. 비우지 않으면 이후 명령이 전부 무시된다.
+        cmdIndex = 0;
+      }
     }
   }
 
@@ -203,6 +208,17 @@ void performTare() {
     if(validReads[i] > 0) offsets[i] = sum[i] / validReads[i];
     for(int j = 0; j < SAMPLE_SIZE; j++) weightBuffer[i][j] = 0;
   }
+
+  // 이번에 0으로 만든 무게를 그램으로 보고한다.
+  // 접시만 올려져 있으면 매번 비슷한 값이 나오고, 포도가 올려진 채로 영점을
+  // 잡으면 값이 크게 튄다. 라즈베리파이가 이걸 지난번 값과 비교해 경고한다.
+  Serial.print("[TARE] ");
+  for(int i = 0; i < LOADCELL_COUNT; i++) {
+    Serial.print((long)(offsets[i] / calFactors[i]));
+    if (i < LOADCELL_COUNT - 1) Serial.print(",");
+  }
+  Serial.println();
+
   Serial.println("[SYSTEM] 영점 조절 완료! 정상 가동 재개.");
 }
 
