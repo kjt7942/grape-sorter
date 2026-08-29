@@ -156,7 +156,7 @@ class PresetDialog(QDialog):
 
 
 class CalibrationDialog(QDialog):
-    def __init__(self, parent=None, is_dark_mode=True, ref_weight=1000):
+    def __init__(self, parent=None, is_dark_mode=True, ref_weight=430):
         super().__init__(parent)
         self.setWindowTitle("저울 보정")
         self.setFixedSize(800, 480)
@@ -165,107 +165,158 @@ class CalibrationDialog(QDialog):
         self.ref_weight = ref_weight
         self.cal_cards = []
         self.cal_labels = []
+        self.cal_states = []
         self.initUI()
         
     def initUI(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
-        
+        layout.setContentsMargins(15, 12, 15, 12)
+        layout.setSpacing(8)
+
         top_layout = QHBoxLayout()
         title = QLabel("저울 정밀 보정")
-        title.setFont(QFont(UI_FONT_FAMILY, 20, QFont.Bold))
+        title.setFont(QFont(UI_FONT_FAMILY, 19, QFont.Bold))
         top_layout.addWidget(title)
+
+        self.lbl_progress = QLabel("1 / 12 번째")
+        self.lbl_progress.setObjectName("Progress")
+        self.lbl_progress.setFont(QFont(UI_FONT_FAMILY, 15, QFont.Bold))
+        top_layout.addWidget(self.lbl_progress)
         top_layout.addStretch(1)
-        
-        ctrl_layout = QHBoxLayout()
+
         self.btn_minus = HoldButton("-")
-        self.btn_minus.setFixedSize(60, 50)
-        self.btn_minus.setFont(QFont(UI_FONT_FAMILY, 24, QFont.Bold))
-        self.btn_minus.setStyleSheet("background-color: #4B5563; color: white; border-radius: 10px;")
-        
-        self.lbl_ref_weight = QLabel(f"무게추: {self.ref_weight} g")
-        self.lbl_ref_weight.setFont(QFont(UI_FONT_FAMILY, 20, QFont.Bold))
+        self.btn_minus.setFixedSize(56, 44)
+        self.btn_minus.setFont(QFont(UI_FONT_FAMILY, 22, QFont.Bold))
+        self.btn_minus.setStyleSheet("background-color: #4B5563; color: white; border-radius: 10px; padding: 0px;")
+
+        self.lbl_ref_weight = QLabel(f"무게추: {self.ref_weight:,} g")
+        self.lbl_ref_weight.setFont(QFont(UI_FONT_FAMILY, 18, QFont.Bold))
         self.lbl_ref_weight.setAlignment(Qt.AlignCenter)
-        self.lbl_ref_weight.setMinimumWidth(200)
-        
+        self.lbl_ref_weight.setMinimumWidth(190)
+
         self.btn_plus = HoldButton("+")
-        self.btn_plus.setFixedSize(60, 50)
-        self.btn_plus.setFont(QFont(UI_FONT_FAMILY, 24, QFont.Bold))
-        self.btn_plus.setStyleSheet("background-color: #4B5563; color: white; border-radius: 10px;")
-        
-        ctrl_layout.addWidget(self.btn_minus)
-        ctrl_layout.addWidget(self.lbl_ref_weight)
-        ctrl_layout.addWidget(self.btn_plus)
-        top_layout.addLayout(ctrl_layout)
+        self.btn_plus.setFixedSize(56, 44)
+        self.btn_plus.setFont(QFont(UI_FONT_FAMILY, 22, QFont.Bold))
+        self.btn_plus.setStyleSheet("background-color: #4B5563; color: white; border-radius: 10px; padding: 0px;")
+
+        top_layout.addWidget(self.btn_minus)
+        top_layout.addWidget(self.lbl_ref_weight)
+        top_layout.addWidget(self.btn_plus)
         layout.addLayout(top_layout)
-        
+
+        # 처음 쓰는 사람도 순서를 알 수 있도록 화면에 절차를 적어 둔다.
+        self.lbl_guide = QLabel()
+        self.lbl_guide.setObjectName("Guide")
+        self.lbl_guide.setFont(QFont(UI_FONT_FAMILY, 12))
+        self.lbl_guide.setAlignment(Qt.AlignCenter)
+        self.lbl_guide.setWordWrap(True)
+        layout.addWidget(self.lbl_guide)
+
         grid = QGridLayout()
-        grid.setSpacing(10)
+        grid.setSpacing(8)
         label_numbers = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫']
-        
+
         for i in range(12):
             card = QFrame()
-            card.setMinimumHeight(100)
+            card.setMinimumHeight(95)
             card_layout = QVBoxLayout(card)
             card_layout.setContentsMargins(5, 5, 5, 5)
-            
+            card_layout.setSpacing(2)
+
             lbl_num = QLabel(label_numbers[i])
             lbl_num.setFont(QFont(UI_FONT_FAMILY, 12))
-            
+
             lbl_val = QLabel("0 g")
             lbl_val.setFont(QFont(UI_FONT_FAMILY, 16, QFont.Bold))
             lbl_val.setAlignment(Qt.AlignCenter)
-            
+
+            # 아직 한 번도 보정하지 않은 저울을 눈에 띄게 해서 빠뜨리지 않도록 한다.
+            lbl_state = QLabel("미보정")
+            lbl_state.setObjectName("CalState")
+            lbl_state.setFont(QFont(UI_FONT_FAMILY, 10))
+            lbl_state.setAlignment(Qt.AlignCenter)
+
             card_layout.addWidget(lbl_num)
             card_layout.addWidget(lbl_val, 1)
-            
+            card_layout.addWidget(lbl_state)
+
             self.cal_cards.append(card)
             self.cal_labels.append(lbl_val)
-            
-            # 🌟 수술 포인트: 행(Row) 순서 뒤집기
-            # 1~6번(i=0~5)은 1행(아래), 7~12번(i=6~11)은 0행(위)으로 배치
+            self.cal_states.append(lbl_state)
+
+            # 실물 배치와 동일하게 1~6번은 아랫줄, 7~12번은 윗줄
             row = 1 - (i // 6)
             col = i % 6
-            grid.addWidget(card, row, col) 
-            
+            grid.addWidget(card, row, col)
+
         layout.addLayout(grid)
-        
+
         bottom_layout = QHBoxLayout()
-        bottom_layout.setSpacing(15)
-        
-        self.btn_apply = QPushButton("현재 파란색 저울 보정 적용")
-        self.btn_apply.setFont(QFont(UI_FONT_FAMILY, 18, QFont.Bold))
-        self.btn_apply.setFixedHeight(60)
+        bottom_layout.setSpacing(10)
+
+        self.btn_apply = QPushButton("보정 적용")
+        self.btn_apply.setFont(QFont(UI_FONT_FAMILY, 17, QFont.Bold))
+        self.btn_apply.setFixedHeight(56)
         self.btn_apply.setStyleSheet("background-color: #2563EB; color: white; border-radius: 12px; border: none;")
-        
-        self.btn_skip = QPushButton("건너뛰기")
-        self.btn_skip.setFont(QFont(UI_FONT_FAMILY, 16, QFont.Bold))
-        self.btn_skip.setFixedHeight(60)
-        self.btn_skip.setStyleSheet("background-color: #6B7280; color: white; border-radius: 12px; border: none;")
-        
-        self.btn_close = QPushButton("완료 및 닫기")
-        self.btn_close.setFont(QFont(UI_FONT_FAMILY, 16, QFont.Bold))
-        self.btn_close.setFixedHeight(60)
+
+        self.btn_skip = QPushButton("건너뛰기\n(기존값 유지)")
+        self.btn_skip.setFont(QFont(UI_FONT_FAMILY, 13, QFont.Bold))
+        self.btn_skip.setFixedHeight(56)
+        self.btn_skip.setStyleSheet("background-color: #6B7280; color: white; border-radius: 12px; border: none; padding: 0px;")
+
+        self.btn_reset = QPushButton("초기화\n(배율 1.0)")
+        self.btn_reset.setFont(QFont(UI_FONT_FAMILY, 13, QFont.Bold))
+        self.btn_reset.setFixedHeight(56)
+        self.btn_reset.setStyleSheet("background-color: #B45309; color: white; border-radius: 12px; border: none; padding: 0px;")
+
+        self.btn_close = QPushButton("완료")
+        self.btn_close.setFont(QFont(UI_FONT_FAMILY, 15, QFont.Bold))
+        self.btn_close.setFixedHeight(56)
         self.btn_close.setStyleSheet("background-color: #EF4444; color: white; border-radius: 12px; border: none;")
-        
-        bottom_layout.addWidget(self.btn_apply, 2)
-        bottom_layout.addWidget(self.btn_skip, 1)
-        bottom_layout.addWidget(self.btn_close, 1)
-        
+
+        bottom_layout.addWidget(self.btn_apply, 3)
+        bottom_layout.addWidget(self.btn_skip, 2)
+        bottom_layout.addWidget(self.btn_reset, 2)
+        bottom_layout.addWidget(self.btn_close, 2)
+
         layout.addLayout(bottom_layout)
+        self.set_busy("저울 영점을 잡는 중입니다. 손을 떼고 기다리세요.")
         self.apply_theme()
+
+    def set_busy(self, text):
+        """자동 영점처럼 조작하면 안 되는 구간. 버튼을 잠그고 이유를 보여준다."""
+        self.lbl_guide.setText(text)
+        for b in (self.btn_apply, self.btn_skip, self.btn_reset,
+                  self.btn_minus, self.btn_plus):
+            b.setEnabled(False)
+
+    def set_ready(self):
+        for b in (self.btn_apply, self.btn_skip, self.btn_reset,
+                  self.btn_minus, self.btn_plus):
+            b.setEnabled(True)
+        self.lbl_guide.setText(
+            "① 분동 무게를 위에서 맞추세요    "
+            "② 파란색 저울에 분동을 올리세요    "
+            "③ 값이 멈추면 [보정 적용]")
 
     def apply_theme(self):
         if self.is_dark_mode:
             self.setStyleSheet("""
                 QDialog { background-color: #121212; border: 2px solid #333333; }
                 QLabel { color: #E0E0E0; }
+                QLabel#Guide { color: #93C5FD; }
+                QLabel#Progress { color: #FBBF24; }
+                QLabel#CalState { color: #6B7280; }
+                QPushButton:disabled { background-color: #374151; color: #6B7280; }
             """)
         else:
             self.setStyleSheet("""
                 QDialog { background-color: #FFFFFF; border: 2px solid #E5E7EB; }
                 QLabel { color: #1F2937; }
+                QLabel#Guide { color: #1D4ED8; }
+                QLabel#Progress { color: #B45309; }
+                QLabel#CalState { color: #9CA3AF; }
+                QPushButton:disabled { background-color: #E5E7EB; color: #9CA3AF; }
             """)
 
 
@@ -302,8 +353,9 @@ class ScaleCheckDialog(QDialog):
 
         layout.addLayout(top_layout)
 
-        desc = QLabel("채널 카드의 'LED 확인' 버튼을 누르면 해당 로드셀의 LED가 켜집니다. 배선을 눈으로 확인하세요.")
-        desc.setFont(QFont(UI_FONT_FAMILY, 12))
+        desc = QLabel("'LED 확인'을 누르면 해당 로드셀 LED가 켜집니다. "
+                      "LED가 깜빡이는 채널은 격리 상태이며, 배선 수리 후 영점(TARE)을 누르면 복구됩니다.")
+        desc.setFont(QFont(UI_FONT_FAMILY, 11))
         desc.setAlignment(Qt.AlignCenter)
         layout.addWidget(desc)
 
@@ -329,7 +381,7 @@ class ScaleCheckDialog(QDialog):
             btn_led = QPushButton("LED 확인")
             btn_led.setCheckable(True)
             btn_led.setFont(QFont(UI_FONT_FAMILY, 11, QFont.Bold))
-            btn_led.setFixedHeight(30)
+            btn_led.setFixedHeight(34)
 
             card_layout.addWidget(lbl_num)
             card_layout.addWidget(lbl_val, 1)
@@ -349,17 +401,19 @@ class ScaleCheckDialog(QDialog):
         bottom_layout = QHBoxLayout()
         bottom_layout.setSpacing(15)
 
-        self.btn_tare = QPushButton("영점(TARE)")
-        self.btn_tare.setFont(QFont(UI_FONT_FAMILY, 16, QFont.Bold))
-        self.btn_tare.setFixedHeight(55)
-        self.btn_tare.setStyleSheet("background-color: #2563EB; color: white; border-radius: 12px; border: none;")
+        # 영점은 메인화면 버튼으로도 되므로, 여기서는 보정으로 들어간다.
+        # 보정 화면이 열릴 때 영점을 자동으로 먼저 잡는다.
+        self.btn_calibrate = QPushButton("저울 보정")
+        self.btn_calibrate.setFont(QFont(UI_FONT_FAMILY, 16, QFont.Bold))
+        self.btn_calibrate.setFixedHeight(55)
+        self.btn_calibrate.setStyleSheet("background-color: #2563EB; color: white; border-radius: 12px; border: none;")
 
         self.btn_close = QPushButton("닫기")
         self.btn_close.setFont(QFont(UI_FONT_FAMILY, 16, QFont.Bold))
         self.btn_close.setFixedHeight(55)
         self.btn_close.setStyleSheet("background-color: #6B7280; color: white; border-radius: 12px; border: none;")
 
-        bottom_layout.addWidget(self.btn_tare, 1)
+        bottom_layout.addWidget(self.btn_calibrate, 1)
         bottom_layout.addWidget(self.btn_close, 1)
         layout.addLayout(bottom_layout)
 
@@ -370,15 +424,17 @@ class ScaleCheckDialog(QDialog):
             self.setStyleSheet("""
                 QDialog { background-color: #121212; border: 2px solid #333333; }
                 QLabel { color: #E0E0E0; }
-                QPushButton { background-color: #2D2D2D; border: 2px solid #404040; border-radius: 8px; color: #E0E0E0; }
-                QPushButton:checked { background-color: #F59E0B; color: #1E1E1E; border: none; }
+                /* padding 을 명시하지 않으면 부모 창의 padding: 10px 을 상속해 글자가 잘린다. */
+                QPushButton { background-color: #2D2D2D; border: 2px solid #404040; border-radius: 8px; color: #E0E0E0; padding: 2px; }
+                QPushButton:checked { background-color: #F59E0B; color: #1E1E1E; border: none; padding: 2px; }
             """)
         else:
             self.setStyleSheet("""
                 QDialog { background-color: #FFFFFF; border: 2px solid #E5E7EB; }
                 QLabel { color: #1F2937; }
-                QPushButton { background-color: #F3F4F6; border: 2px solid #D1D5DB; border-radius: 8px; color: #1F2937; }
-                QPushButton:checked { background-color: #F59E0B; color: #1E1E1E; border: none; }
+                /* padding 을 명시하지 않으면 부모 창의 padding: 10px 을 상속해 글자가 잘린다. */
+                QPushButton { background-color: #F3F4F6; border: 2px solid #D1D5DB; border-radius: 8px; color: #1F2937; padding: 2px; }
+                QPushButton:checked { background-color: #F59E0B; color: #1E1E1E; border: none; padding: 2px; }
             """)
 
 
@@ -535,12 +591,6 @@ class SmartSorterUI(QMainWindow):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(10)
 
-        self.lbl_sim_mode = QLabel("⚠️ 시뮬레이션 모드 (아두이노 미연결)")
-        self.lbl_sim_mode.setObjectName("SimMode")
-        self.lbl_sim_mode.setFont(QFont(UI_FONT_FAMILY, 14))
-        self.lbl_sim_mode.setAlignment(Qt.AlignCenter)
-        self.lbl_sim_mode.hide()
-
         grid_layout = QGridLayout()
         grid_layout.setSpacing(10)
         
@@ -578,19 +628,22 @@ class SmartSorterUI(QMainWindow):
         right_panel = QFrame()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(10) 
+        # 설정 행이 5개라 800x480 안에 들어가도록 간격을 좁혔다.
+        right_layout.setSpacing(6)
 
         self.setting_product = self.create_setting_row("제품명", "포도 2KG")
         self.setting_target = self.create_setting_row("목표무게", "2,050")
+        self.setting_tol = self.create_setting_row("허용오차", "+50")
         self.setting_min = self.create_setting_row("최소", "3")
         self.setting_max = self.create_setting_row("최대", "4")
 
-        right_layout.addWidget(self.setting_product) 
-        right_layout.addWidget(self.setting_target)  
-        right_layout.addWidget(self.setting_min)     
-        right_layout.addWidget(self.setting_max)     
-        
-        right_layout.addStretch(2) 
+        right_layout.addWidget(self.setting_product)
+        right_layout.addWidget(self.setting_target)
+        right_layout.addWidget(self.setting_tol)
+        right_layout.addWidget(self.setting_min)
+        right_layout.addWidget(self.setting_max)
+
+        right_layout.addStretch(2)
 
         self.combo_card = ClickableFrame()
         self.combo_card.setObjectName("ComboCard")
@@ -651,6 +704,12 @@ class SmartSorterUI(QMainWindow):
         main_layout.addWidget(right_panel, 8)
 
     def init_overlay(self):
+        # 터치 전용 키오스크라 오버레이가 걸린 채 남으면 조작자가 빠져나올 수단이 없다.
+        # show_message(text, timeout_ms) 로 항상 자동 해제 시각을 갖게 한다.
+        self._msg_timer = QTimer(self)
+        self._msg_timer.setSingleShot(True)
+        self._msg_timer.timeout.connect(self.hide_message)
+
         self.overlay_label = QLabel(self.central_widget)
         self.overlay_label.setAlignment(Qt.AlignCenter)
         self.overlay_label.setStyleSheet("""
@@ -675,13 +734,23 @@ class SmartSorterUI(QMainWindow):
                 (self.height() - label_height) // 2
             )
 
-    def show_message(self, text):
+    def show_message(self, text, timeout_ms=None):
         self.overlay_label.setText(text)
         self.overlay_label.show()
         self.overlay_label.raise_()
+        self._msg_timer.stop()
+        if timeout_ms:
+            self._msg_timer.start(timeout_ms)
 
     def hide_message(self):
+        self._msg_timer.stop()
         self.overlay_label.hide()
+
+    def mousePressEvent(self, event):
+        # 최후의 탈출구: 오버레이가 떠 있으면 화면을 눌러 닫을 수 있게 한다.
+        if self.overlay_label.isVisible():
+            self.hide_message()
+        super().mousePressEvent(event)
 
     def create_loadcell_card(self, num_str, weight):
         card = ClickableFrame()
@@ -721,11 +790,11 @@ class SmartSorterUI(QMainWindow):
     def create_setting_row(self, label_text, value_text):
         row_widget = QFrame()
         row_widget.setObjectName("Card")
-        row_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed) 
-        row_widget.setFixedHeight(60) 
-        
+        row_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        row_widget.setFixedHeight(50)
+
         layout = QHBoxLayout(row_widget)
-        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setContentsMargins(10, 3, 10, 3)
         layout.setSpacing(10)
         
         btn_minus = HoldButton("-") 
