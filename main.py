@@ -542,6 +542,11 @@ class MainApp(SmartSorterUI):
         suspects = []
         if isinstance(previous, list) and len(previous) == len(offsets):
             for i, (now, before) in enumerate(zip(offsets, previous)):
+                # 연결되지 않은 채널은 아두이노가 오프셋을 갱신하지 못해 0으로 보고한다.
+                # 배선이 늘거나 줄면 0 <-> 접시무게로 튀는데, 이건 접시 위 이물이
+                # 아니라 하드웨어 구성 변경이므로 경고 대상이 아니다.
+                if now == 0 or before == 0:
+                    continue
                 if abs(now - before) >= TARE_DRIFT_WARN:
                     suspects.append((i + 1, now - before))
 
