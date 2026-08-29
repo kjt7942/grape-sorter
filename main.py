@@ -394,6 +394,7 @@ class MainApp(SmartSorterUI):
         self.locked_combo = None
         self.locked_sum = 0
         self.locked_target = self.target_weight
+        self.locked_topup = 0
         self.original_locked_indices = []
         # 조작자가 조합무게 카드를 눌러 거절한 조합들. 저울 구성이 바뀌면 비운다.
         self.rejected_combos = set()
@@ -1461,7 +1462,10 @@ class MainApp(SmartSorterUI):
         if result.combo is not None:
             self.locked_combo = result.combo
             self.locked_sum = result.total
-            self.locked_target = current_target
+            # 실적에는 박스 전체를 남겨야 하므로 목표와 박스 무게를 따로 보관한다.
+            # 보태기 모드에서 current_target 은 '더 보태야 할 양'일 뿐이다.
+            self.locked_target = target
+            self.locked_topup = topup_sum if self.is_topup_mode else 0
             self.original_locked_indices = [item[0] for item in result.combo]
 
         self.render_combo_result(result.combo, result.total, topup_sum,
@@ -1469,13 +1473,18 @@ class MainApp(SmartSorterUI):
                                  target=current_target)
 
     def record_box(self):
-        """박스 하나가 완성됐다. 생산 실적을 CSV 로 남긴다."""
+        """박스 하나가 완성됐다. 생산 실적을 CSV 로 남긴다.
+
+        보태기 모드에서도 화면에 뜬 값과 같은 '박스 전체 무게'를 기록한다.
+        조합분만 남기면 출하 기록으로 쓸 수 없다.
+        """
+        total = self.locked_sum + self.locked_topup
         row = [
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             SLOT_NAMES[self.current_preset_index] if self.current_preset_index is not None else "수동",
             self.locked_target,
-            self.locked_sum,
-            self.locked_sum - self.locked_target,
+            total,
+            total - self.locked_target,
             len(self.original_locked_indices),
             " ".join(str(i) for i in sorted(self.original_locked_indices)),
         ]
@@ -1494,6 +1503,10 @@ class MainApp(SmartSorterUI):
         if self.startup_active:
             return
         if self.scale_check_dialog and self.scale_check_dialog.isVisible():
+            return
+        # 보정 중에는 조작자가 분동을 옮겨 다니느라 조합이 계속 바뀐다.
+        # LED가 따라 깜빡이면 어느 저울을 보정 중인지 헷갈린다.
+        if self.cal_dialog and self.cal_dialog.isVisible():
             return
         key = tuple(sorted(indices))
         if key == self._last_led:

@@ -75,6 +75,63 @@ def check_production(window, main_mod):
     h.ok("통신 두절은 실적에서 제외")
 
 
+def check_topup_production(window, main_mod):
+    """보태기 모드에서도 화면에 뜬 박스 전체 무게가 기록돼야 한다.
+
+    조합분(보탠 양)만 남기면 목표 650g / 실제 660g 같은 행이 되어
+    출하 기록으로 쓸 수 없다.
+    """
+    with open(main_mod.PRODUCTION_FILE, "w", encoding="utf-8-sig") as f:
+        pass
+    os.remove(main_mod.PRODUCTION_FILE)
+
+    # 박스(1,2,7,8) = 1,400g, 목표 2,050g -> 650g 보태야 함
+    TOPUP = [350, 360, 700, 680, 720, 660, 340, 350, 830, 760, 590, 640]
+    window.target_weight, window.min_comb, window.max_comb, window.tolerance = 2050, 3, 4, 50
+    window.current_preset_index = None
+    window.locked_combo = None
+    window.rejected_combos.clear()
+    window.toggle_topup_mode()
+    window.on_data_received(TOPUP)
+    shown = window.combo_val.text()
+    assert shown != "조합실패", "보태기 조합 실패"
+
+    emptied = list(TOPUP)
+    for scale in window.original_locked_indices:
+        emptied[scale - 1] = 0
+    window.on_data_received(emptied)
+    window.toggle_topup_mode()
+
+    with open(main_mod.PRODUCTION_FILE, encoding="utf-8-sig") as f:
+        row = list(csv.reader(f))[1]
+    assert int(row[2]) == 2050, f"목표를 보탤 양으로 기록: {row}"
+    assert f"{int(row[3]):,} g" == shown, f"화면({shown})과 기록({row[3]}g)이 다름"
+    h.ok(f"보태기 실적이 박스 전체 무게로 기록 (목표 {row[2]}g, 실제 {row[3]}g)")
+
+
+def check_calibration_led_gate(window, main_ui, sent):
+    """보정 중에는 조합 LED 가 나가면 안 된다.
+
+    분동을 옮겨 다니면 조합이 계속 바뀌고, LED 가 따라 깜빡이면
+    지금 어느 저울을 보정 중인지 헷갈린다.
+    """
+    window.locked_combo = None
+    window.rejected_combos.clear()
+    window.cal_dialog = main_ui.CalibrationDialog(window, is_dark_mode=True, ref_weight=430)
+    window.cal_dialog.show()
+
+    sent.clear()
+    for _ in range(10):
+        window.locked_combo = None
+        window.on_data_received([1000, 1050] + [0] * 10)
+        window.on_data_received([0, 0, 430] + [0] * 9)
+    assert sent == [], f"보정 중 조합 LED 가 나감: {sent}"
+
+    window.cal_dialog.close()
+    window.cal_dialog = None
+    h.ok("보정 중 조합 LED 차단")
+
+
 def check_shortfall(window):
     window.locked_combo = None
     window.rejected_combos.clear()
@@ -149,6 +206,8 @@ def main():
 
     check_recombine(window)
     check_production(window, main_mod)
+    check_topup_production(window, main_mod)
+    check_calibration_led_gate(window, main_ui, sent)
     check_shortfall(window)
     check_presets(window, main_ui)
     check_settings_backup(window, main_mod)
