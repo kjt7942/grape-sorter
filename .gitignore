@@ -2,5 +2,16 @@ __pycache__/
 *.pyc
 desktop.ini
 .DS_Store
+
+# 현장 기기별 설정 (프리셋, 저울 보정값)
 settings.json
-dev_environment_spec.md
+settings.json.tmp
+settings.json.corrupt
+settings.backup.json
+
+# 생산 실적
+production.csv
+
+# 실행 로그
+sorter.log
+sorter.log.*
