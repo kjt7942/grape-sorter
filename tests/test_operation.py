@@ -132,6 +132,52 @@ def check_calibration_led_gate(window, main_ui, sent):
     h.ok("보정 중 조합 LED 차단")
 
 
+def check_clock_marking(window, main_mod):
+    """라즈베리파이 3B 에는 RTC 가 없다. 시각을 못 믿으면 실적에 표시를 남긴다.
+
+    fake-hwclock 이 마지막 종료 시각을 복원하므로 연도만 봐서는 알 수 없고,
+    네트워크 동기화 여부를 봐야 한다.
+    """
+    original = main_mod.clock_is_trustworthy
+    os.remove(main_mod.PRODUCTION_FILE)
+
+    def record_one():
+        W = [1000, 1050, 1020, 1030, 990, 0, 0, 0, 0, 0, 0, 0]
+        window.locked_combo = None
+        window.rejected_combos.clear()
+        window.target_weight, window.min_comb, window.max_comb = 2050, 2, 2
+        window.on_data_received(W)
+        emptied = list(W)
+        for scale in window.original_locked_indices:
+            emptied[scale - 1] = 0
+        window.on_data_received(emptied)
+
+    try:
+        main_mod.clock_is_trustworthy = lambda: True
+        record_one()
+        main_mod.clock_is_trustworthy = lambda: False
+        record_one()
+    finally:
+        main_mod.clock_is_trustworthy = original
+
+    with open(main_mod.PRODUCTION_FILE, encoding="utf-8-sig") as f:
+        rows = list(csv.reader(f))
+    assert main_mod.CLOCK_UNSYNCED_MARK not in rows[1][0], rows[1][0]
+    assert main_mod.CLOCK_UNSYNCED_MARK in rows[2][0], rows[2][0]
+    h.ok(f"시각 미확인 표시 ({rows[2][0]})")
+
+    # 경고는 한 세션에 한 번만. 매번 뜨면 무시하게 된다.
+    window._clock_warned = False
+    main_mod.clock_is_trustworthy = lambda: False
+    try:
+        first = window.clock_warning()
+        second = window.clock_warning()
+    finally:
+        main_mod.clock_is_trustworthy = original
+    assert first and second is None, (first, second)
+    h.ok("시계 경고는 세션당 1회")
+
+
 def check_shortfall(window):
     window.locked_combo = None
     window.rejected_combos.clear()
@@ -207,6 +253,7 @@ def main():
     check_recombine(window)
     check_production(window, main_mod)
     check_topup_production(window, main_mod)
+    check_clock_marking(window, main_mod)
     check_calibration_led_gate(window, main_ui, sent)
     check_shortfall(window)
     check_presets(window, main_ui)

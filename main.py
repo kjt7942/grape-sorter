@@ -34,6 +34,8 @@ SLOT_NAMES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
 DEFAULT_REF_WEIGHT = 430          # 현장 분동 무게(g)
 CAL_RATIO_MIN, CAL_RATIO_MAX = 0.5, 2.0   # 허용 배율 범위. 벗어나면 분동/저울을 잘못 짚은 것
 TARE_DRIFT_WARN = 100             # 지난 영점 대비 이만큼(g) 이상 차이 나면 접시 위 이물 의심
+CLOCK_SANE_YEAR = 2025            # 이보다 이전이면 시계가 아예 안 맞춰진 것
+CLOCK_UNSYNCED_MARK = "(시각미확인)"
 
 # 가짜 무게를 만드는 시뮬레이션은 개발용이다. 현장 기기(라즈베리파이)에서
 # 가짜 데이터가 화면에 뜨면 조작자가 정상으로 오인하므로 원천 차단한다.
@@ -50,6 +52,25 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("sorter")
+
+
+def clock_is_trustworthy():
+    """시스템 시각을 믿을 수 있는지.
+
+    라즈베리파이 3B 에는 RTC 가 없다. 전원을 끄면 시계가 멈추고, 부팅 시
+    fake-hwclock 이 '마지막 종료 시각'을 복원한다. 그래서 연도만 봐서는
+    맞는지 알 수 없다 - 며칠 전 날짜가 그럴듯하게 찍혀 있기 때문이다.
+    네트워크로 실제 동기화가 됐는지를 봐야 한다.
+
+    systemd-timesyncd 를 쓰지 않는 환경(chrony 등)에서는 판별할 수 없으므로
+    연도 상식 검사로만 넘어간다. 없는 근거로 경고를 띄우지 않기 위함이다.
+    """
+    if sys.platform == 'win32':
+        return True
+    timesync_dir = "/run/systemd/timesync"
+    if os.path.isdir(timesync_dir):
+        return os.path.exists(os.path.join(timesync_dir, "synchronized"))
+    return datetime.now().year >= CLOCK_SANE_YEAR
 
 
 def git(*args, **kwargs):
@@ -395,6 +416,7 @@ class MainApp(SmartSorterUI):
         self.locked_sum = 0
         self.locked_target = self.target_weight
         self.locked_topup = 0
+        self._clock_warned = False
         self.original_locked_indices = []
         # 조작자가 조합무게 카드를 눌러 거절한 조합들. 저울 구성이 바뀌면 비운다.
         self.rejected_combos = set()
@@ -515,15 +537,30 @@ class MainApp(SmartSorterUI):
         warning = self.check_tare_offsets(self.pending_tare_offsets)
         self.pending_tare_offsets = None
 
+        # 접시 위 이물 경고가 우선. 겹쳐 띄우면 700x180 오버레이를 넘친다.
+        clock = self.clock_warning()
         if error:
             log.error("시작 준비 절차 실패: %s", error)
             self.show_message(f"저울 준비 실패\n{error}", 5000)
         elif warning:
             self.show_message(warning, 7000)
+        elif clock:
+            self.show_message(clock, 6000)
         else:
             self.hide_message()
 
         self.on_data_received(self.raw_weights)
+
+    def clock_warning(self):
+        """시각이 안 맞으면 한 세션에 한 번만 알린다. 매번 띄우면 무시하게 된다."""
+        if clock_is_trustworthy() or self._clock_warned:
+            return None
+        self._clock_warned = True
+        log.warning("시스템 시각이 동기화되지 않았습니다. 생산 실적 시각이 부정확합니다. (현재 %s)",
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        return ("시각이 맞지 않을 수 있습니다.\n"
+                "네트워크 연결을 확인하세요.\n"
+                f"생산 실적에 {CLOCK_UNSYNCED_MARK} 로 기록됩니다.")
 
     def on_tare_offsets(self, offsets):
         """아두이노가 방금 0으로 만든 무게(g). 준비 절차 밖에서도 기록해 둔다."""
@@ -1479,8 +1516,13 @@ class MainApp(SmartSorterUI):
         조합분만 남기면 출하 기록으로 쓸 수 없다.
         """
         total = self.locked_sum + self.locked_topup
+        # 시계를 못 믿는 상태면 표시를 남긴다. 틀린 시각을 맞는 것처럼
+        # 기록하면 나중에 출하 기록으로 쓸 때 구분할 방법이 없다.
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if not clock_is_trustworthy():
+            stamp += f" {CLOCK_UNSYNCED_MARK}"
         row = [
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            stamp,
             SLOT_NAMES[self.current_preset_index] if self.current_preset_index is not None else "수동",
             self.locked_target,
             total,
