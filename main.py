@@ -10,7 +10,7 @@ import json
 from PyQt5.QtWidgets import QApplication, QMessageBox
 from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer
 
-from main_ui import SmartSorterUI, PresetDialog, CalibrationDialog
+from main_ui import SmartSorterUI, PresetDialog, CalibrationDialog, ScaleCheckDialog
 
 # 프로그램의 목표무게, 프리셋 정보를 저장할 파일 경로
 SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
@@ -30,9 +30,10 @@ class OTAThread(QThread):
 
 
 class SerialThread(QThread):
-    data_received = pyqtSignal(list) 
-    is_simulation = pyqtSignal(bool) 
-    system_message = pyqtSignal(str) 
+    data_received = pyqtSignal(list)
+    is_simulation = pyqtSignal(bool)
+    system_message = pyqtSignal(str)
+    firmware_version_received = pyqtSignal(str)
 
     def __init__(self, ports=['/dev/ttyACM0', '/dev/ttyUSB0', 'COM3', 'COM4', 'COM5'], baudrate=115200):
         super().__init__()
@@ -71,6 +72,13 @@ class SerialThread(QThread):
                             self.system_message.emit("TARE_DONE")
                             buffer = buffer.replace("[SYSTEM] 영점 조절 완료! 정상 가동 재개.", "")
                             buffer = buffer.replace("[SYSTEM] 영점 조절 완료", "")
+
+                        while "[VER]" in buffer and "\n" in buffer.split("[VER]", 1)[1]:
+                            after = buffer.split("[VER]", 1)[1]
+                            line_end = after.find("\n")
+                            version = after[:line_end].strip()
+                            self.firmware_version_received.emit(version)
+                            buffer = buffer.split("[VER]", 1)[0] + after[line_end + 1:]
 
                         while '<' in buffer and '>' in buffer:
                             start = buffer.find('<')
@@ -114,6 +122,13 @@ class SerialThread(QThread):
             except Exception as e:
                 print(f"아두이노 명령 전송 실패: {e}")
 
+    def request_firmware_version(self):
+        if self.serial_port and self.serial_port.is_open:
+            try:
+                self.serial_port.write(b"<VER>\n")
+            except Exception as e:
+                print(f"펌웨어 버전 요청 실패: {e}")
+
     def stop(self):
         self.running = False
         self.wait()
@@ -145,9 +160,11 @@ class MainApp(SmartSorterUI):
         self.cal_multipliers = self.settings_data.get("cal_multipliers", [1.0] * 12)
         self.cal_ref_weight = self.settings_data.get("cal_ref_weight", 1000)
         
-        self.memo_min_comb = self.min_comb 
+        self.memo_min_comb = self.min_comb
         self.cal_dialog = None
         self.cal_target_idx = 0
+        self.scale_check_dialog = None
+        self.expected_firmware_version = None
         
         self.locked_combo = None
         self.locked_sum = 0
@@ -166,6 +183,7 @@ class MainApp(SmartSorterUI):
         self.serial_thread.data_received.connect(self.on_data_received)
         self.serial_thread.is_simulation.connect(self.update_sim_mode_display)
         self.serial_thread.system_message.connect(self.on_system_message)
+        self.serial_thread.firmware_version_received.connect(self.on_firmware_version_received)
         self.serial_thread.start()
         
         self.start_ota_check()
@@ -463,6 +481,82 @@ class MainApp(SmartSorterUI):
                     card_style = "QFrame { background-color: #2D2D2D; border: 2px solid #404040; border-radius: 12px; }" if self.is_dark_mode else "QFrame { background-color: #F3F4F6; border: 2px solid #D1D5DB; border-radius: 12px; }"
                 self.set_cached_style(card, card_style)
 
+    def show_scale_check_dialog(self):
+        self.scale_check_dialog = ScaleCheckDialog(self, is_dark_mode=self.is_dark_mode)
+
+        for i, btn in enumerate(self.scale_check_dialog.led_buttons):
+            btn.toggled.connect(lambda checked, idx=i: self.toggle_scale_check_led(idx, checked))
+
+        self.scale_check_dialog.btn_tare.clicked.connect(self.send_tare_command)
+        self.scale_check_dialog.btn_close.clicked.connect(self.scale_check_dialog.accept)
+
+        try:
+            self.expected_firmware_version = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                capture_output=True, text=True
+            ).stdout.strip()
+        except Exception:
+            self.expected_firmware_version = None
+
+        self.update_scale_check_dialog_ui()
+        if self.serial_thread.serial_port and self.serial_thread.serial_port.is_open:
+            self.serial_thread.request_firmware_version()
+        else:
+            self.scale_check_dialog.lbl_version.setText("펌웨어 버전: 시뮬레이션 모드 (아두이노 미연결)")
+
+        self.scale_check_dialog.exec_()
+
+        self.serial_thread.send_signal([])
+        self.scale_check_dialog = None
+
+    def toggle_scale_check_led(self, idx, checked):
+        if not self.scale_check_dialog:
+            return
+        if checked:
+            for j, btn in enumerate(self.scale_check_dialog.led_buttons):
+                if j != idx and btn.isChecked():
+                    btn.blockSignals(True)
+                    btn.setChecked(False)
+                    btn.blockSignals(False)
+            self.serial_thread.send_signal([idx + 1])
+        else:
+            self.serial_thread.send_signal([])
+
+    def on_firmware_version_received(self, version):
+        if not (self.scale_check_dialog and self.scale_check_dialog.isVisible()):
+            return
+        if self.expected_firmware_version and version == self.expected_firmware_version:
+            self.scale_check_dialog.lbl_version.setText(f"펌웨어 버전: {version} (GitHub 최신과 일치)")
+            self.scale_check_dialog.lbl_version.setStyleSheet("color: #10B981; font-weight: bold;")
+        elif self.expected_firmware_version:
+            self.scale_check_dialog.lbl_version.setText(f"펌웨어 버전: {version} (GitHub 최신과 다름! 업데이트 필요)")
+            self.scale_check_dialog.lbl_version.setStyleSheet("color: #EF4444; font-weight: bold;")
+        else:
+            self.scale_check_dialog.lbl_version.setText(f"펌웨어 버전: {version}")
+
+    def update_scale_check_dialog_ui(self):
+        if not self.scale_check_dialog or not self.scale_check_dialog.isVisible():
+            return
+
+        ok_count = 0
+        for i in range(12):
+            w = self.raw_weights[i]
+            card = self.scale_check_dialog.channel_cards[i]
+            lbl = self.scale_check_dialog.channel_labels[i]
+
+            if w == -1:
+                lbl.setText("연결안됨 (ERR)")
+                self.set_cached_style(lbl, "color: #EF4444; font-weight: bold;")
+                card_style = "QFrame { background-color: #451A1A; border: 2px solid #7F1D1D; border-radius: 12px; }" if self.is_dark_mode else "QFrame { background-color: #FEE2E2; border: 2px solid #FCA5A5; border-radius: 12px; }"
+            else:
+                ok_count += 1
+                lbl.setText(f"정상 ({w:,})")
+                self.set_cached_style(lbl, "color: #10B981; font-weight: bold;")
+                card_style = "QFrame { background-color: #064E3B; border: 2px solid #059669; border-radius: 12px; }" if self.is_dark_mode else "QFrame { background-color: #ECFDF5; border: 2px solid #10B981; border-radius: 12px; }"
+            self.set_cached_style(card, card_style)
+
+        self.scale_check_dialog.lbl_summary.setText(f"정상 {ok_count} / 12")
+
     def toggle_topup_mode(self):
         self.is_topup_mode = not self.is_topup_mode
         self.locked_combo = None
@@ -501,8 +595,9 @@ class MainApp(SmartSorterUI):
     def show_preset_dialog(self):
         dialog = PresetDialog(self, is_dark_mode=self.is_dark_mode)
         presets = self.settings_data.get("presets", [None]*8)
-            
+
         dialog.btn_clear.clicked.connect(lambda: self.clear_all_presets(dialog))
+        dialog.btn_scale_check.clicked.connect(self.show_scale_check_dialog)
         
         slot_names = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
         for i, btn in enumerate(dialog.preset_buttons):
@@ -632,7 +727,10 @@ class MainApp(SmartSorterUI):
         
         if self.cal_dialog and self.cal_dialog.isVisible():
             self.update_cal_dialog_ui()
-        
+
+        if self.scale_check_dialog and self.scale_check_dialog.isVisible():
+            self.update_scale_check_dialog_ui()
+
         total = 0
         topup_sum = 0
         for i, w in enumerate(self.weights):

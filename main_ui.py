@@ -85,12 +85,18 @@ class PresetDialog(QDialog):
         
         title_layout.addStretch(1)
         
+        self.btn_scale_check = QPushButton("저울점검")
+        self.btn_scale_check.setObjectName("ScaleCheckBtn")
+        self.btn_scale_check.setFont(QFont(UI_FONT_FAMILY, 14, QFont.Bold))
+        self.btn_scale_check.setFixedSize(110, 45)
+        title_layout.addWidget(self.btn_scale_check)
+
         self.btn_clear = QPushButton("비우기")
-        self.btn_clear.setObjectName("ClearBtn") 
+        self.btn_clear.setObjectName("ClearBtn")
         self.btn_clear.setFont(QFont(UI_FONT_FAMILY, 14, QFont.Bold))
         self.btn_clear.setFixedSize(100, 45)
         title_layout.addWidget(self.btn_clear)
-        
+
         layout.addLayout(title_layout)
         
         desc = QLabel("버튼을 짧게 터치하면 불러오기, 2초간 길게 누르면 현재 설정이 저장됩니다.")
@@ -129,6 +135,9 @@ class PresetDialog(QDialog):
                 QPushButton#ClearBtn { background-color: #EF4444; color: white; border: none; }
                 QPushButton#ClearBtn:hover { background-color: #DC2626; }
                 QPushButton#ClearBtn:pressed { background-color: #B91C1C; }
+                QPushButton#ScaleCheckBtn { background-color: #2563EB; color: white; border: none; }
+                QPushButton#ScaleCheckBtn:hover { background-color: #1D4ED8; }
+                QPushButton#ScaleCheckBtn:pressed { background-color: #1E40AF; }
             """)
         else:
             self.setStyleSheet("""
@@ -140,6 +149,9 @@ class PresetDialog(QDialog):
                 QPushButton#ClearBtn { background-color: #EF4444; color: white; border: none; }
                 QPushButton#ClearBtn:hover { background-color: #DC2626; }
                 QPushButton#ClearBtn:pressed { background-color: #B91C1C; }
+                QPushButton#ScaleCheckBtn { background-color: #2563EB; color: white; border: none; }
+                QPushButton#ScaleCheckBtn:hover { background-color: #1D4ED8; }
+                QPushButton#ScaleCheckBtn:pressed { background-color: #1E40AF; }
             """)
 
 
@@ -254,6 +266,119 @@ class CalibrationDialog(QDialog):
             self.setStyleSheet("""
                 QDialog { background-color: #FFFFFF; border: 2px solid #E5E7EB; }
                 QLabel { color: #1F2937; }
+            """)
+
+
+class ScaleCheckDialog(QDialog):
+    def __init__(self, parent=None, is_dark_mode=True):
+        super().__init__(parent)
+        self.setWindowTitle("저울 점검")
+        self.setFixedSize(800, 480)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.is_dark_mode = is_dark_mode
+        self.channel_cards = []
+        self.channel_labels = []
+        self.led_buttons = []
+        self.initUI()
+
+    def initUI(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+
+        top_layout = QHBoxLayout()
+        title = QLabel("저울(로드셀) 점검")
+        title.setFont(QFont(UI_FONT_FAMILY, 20, QFont.Bold))
+        top_layout.addWidget(title)
+        top_layout.addStretch(1)
+
+        self.lbl_summary = QLabel("정상 0 / 12")
+        self.lbl_summary.setFont(QFont(UI_FONT_FAMILY, 16, QFont.Bold))
+        top_layout.addWidget(self.lbl_summary)
+
+        self.lbl_version = QLabel("펌웨어 버전: 확인 중...")
+        self.lbl_version.setFont(QFont(UI_FONT_FAMILY, 14))
+        top_layout.addWidget(self.lbl_version)
+
+        layout.addLayout(top_layout)
+
+        desc = QLabel("채널 카드의 'LED 확인' 버튼을 누르면 해당 로드셀의 LED가 켜집니다. 배선을 눈으로 확인하세요.")
+        desc.setFont(QFont(UI_FONT_FAMILY, 12))
+        desc.setAlignment(Qt.AlignCenter)
+        layout.addWidget(desc)
+
+        grid = QGridLayout()
+        grid.setSpacing(10)
+        label_numbers = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫']
+
+        for i in range(12):
+            card = QFrame()
+            card.setMinimumHeight(110)
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(5, 5, 5, 5)
+            card_layout.setSpacing(4)
+
+            lbl_num = QLabel(label_numbers[i])
+            lbl_num.setFont(QFont(UI_FONT_FAMILY, 12))
+            lbl_num.setAlignment(Qt.AlignCenter)
+
+            lbl_val = QLabel("확인 중...")
+            lbl_val.setFont(QFont(UI_FONT_FAMILY, 13, QFont.Bold))
+            lbl_val.setAlignment(Qt.AlignCenter)
+
+            btn_led = QPushButton("LED 확인")
+            btn_led.setCheckable(True)
+            btn_led.setFont(QFont(UI_FONT_FAMILY, 11, QFont.Bold))
+            btn_led.setFixedHeight(30)
+
+            card_layout.addWidget(lbl_num)
+            card_layout.addWidget(lbl_val, 1)
+            card_layout.addWidget(btn_led)
+
+            self.channel_cards.append(card)
+            self.channel_labels.append(lbl_val)
+            self.led_buttons.append(btn_led)
+
+            # 1~6번(i=0~5)은 1행(아래), 7~12번(i=6~11)은 0행(위)으로 배치 (실물 배치와 동일)
+            row = 1 - (i // 6)
+            col = i % 6
+            grid.addWidget(card, row, col)
+
+        layout.addLayout(grid)
+
+        bottom_layout = QHBoxLayout()
+        bottom_layout.setSpacing(15)
+
+        self.btn_tare = QPushButton("영점(TARE)")
+        self.btn_tare.setFont(QFont(UI_FONT_FAMILY, 16, QFont.Bold))
+        self.btn_tare.setFixedHeight(55)
+        self.btn_tare.setStyleSheet("background-color: #2563EB; color: white; border-radius: 12px; border: none;")
+
+        self.btn_close = QPushButton("닫기")
+        self.btn_close.setFont(QFont(UI_FONT_FAMILY, 16, QFont.Bold))
+        self.btn_close.setFixedHeight(55)
+        self.btn_close.setStyleSheet("background-color: #6B7280; color: white; border-radius: 12px; border: none;")
+
+        bottom_layout.addWidget(self.btn_tare, 1)
+        bottom_layout.addWidget(self.btn_close, 1)
+        layout.addLayout(bottom_layout)
+
+        self.apply_theme()
+
+    def apply_theme(self):
+        if self.is_dark_mode:
+            self.setStyleSheet("""
+                QDialog { background-color: #121212; border: 2px solid #333333; }
+                QLabel { color: #E0E0E0; }
+                QPushButton { background-color: #2D2D2D; border: 2px solid #404040; border-radius: 8px; color: #E0E0E0; }
+                QPushButton:checked { background-color: #F59E0B; color: #1E1E1E; border: none; }
+            """)
+        else:
+            self.setStyleSheet("""
+                QDialog { background-color: #FFFFFF; border: 2px solid #E5E7EB; }
+                QLabel { color: #1F2937; }
+                QPushButton { background-color: #F3F4F6; border: 2px solid #D1D5DB; border-radius: 8px; color: #1F2937; }
+                QPushButton:checked { background-color: #F59E0B; color: #1E1E1E; border: none; }
             """)
 
 

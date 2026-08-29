@@ -79,7 +79,11 @@ void loop() {
 
       if (strcmp(innerCmd, "TARE") == 0) {
         performTare();
-      } 
+      }
+      else if (strcmp(innerCmd, "VER") == 0) {
+        Serial.print("[VER] ");
+        Serial.println(FIRMWARE_VERSION);
+      }
       else {
         for (int i = 0; i < LOADCELL_COUNT; i++) ledCommandState[i] = false;
         
