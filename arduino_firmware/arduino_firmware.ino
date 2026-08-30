@@ -3,7 +3,10 @@
 
 // --- 핀 설정 ---
 const int LOADCELL_COUNT = 12;
-const int SCK_PIN = 2; 
+// 허브보드 1/2/3의 SCK를 각각 독립된 핀으로 분리. 세 핀 모두 매 순간
+// 똑같은 펄스를 동시에 내보내므로(아래 readSensors), 어느 채널이 어느
+// 허브에 물려 있는지는 신경 쓸 필요 없다 - 이전처럼 한 몸처럼 동작한다.
+const int SCK_PINS[3] = {2, 34, 35};
 const int DT_PINS[LOADCELL_COUNT]  = {24, 25, 28, 29, 32, 33, 22, 23, 26, 27, 30, 31};
 const int LED_PINS[LOADCELL_COUNT] = { 5,  6,  9, 10, 13, 14,  3,  4,  7,  8, 11, 12};
 // --- 영점 및 '개별' 보정 설정 ---
@@ -38,8 +41,10 @@ void performTare();
 void setup() {
   delay(1000); // 🌟 필수 추가: 전원 인가 후 로드셀이 깨어날 때까지 1초 대기
   Serial.begin(115200);
-  pinMode(SCK_PIN, OUTPUT);
-  digitalWrite(SCK_PIN, LOW);
+  for (int s = 0; s < 3; s++) {
+    pinMode(SCK_PINS[s], OUTPUT);
+    digitalWrite(SCK_PINS[s], LOW);
+  }
   
   for(int i = 0; i < LOADCELL_COUNT; i++) {
     // 🚨 핵심 수술: 아두이노 내부에 5V 저항을 강제로 연결하여 노이즈 원천 차단!
@@ -252,9 +257,13 @@ void readSensors(long* targetArray, bool* successArray) {
   
   // 24번의 펄스를 발생시켜 데이터를 동시에 빨아들임
   for (int i = 0; i < 24; i++) {
-    digitalWrite(SCK_PIN, HIGH); 
+    digitalWrite(SCK_PINS[0], HIGH);
+    digitalWrite(SCK_PINS[1], HIGH);
+    digitalWrite(SCK_PINS[2], HIGH);
     delayMicroseconds(1);       // 1. 아주 짧게 전기를 쏜다 (1마이크로초)
-    digitalWrite(SCK_PIN, LOW); // 2. 🚨 즉시 끈다! (수면 모드 절대 진입 불가)
+    digitalWrite(SCK_PINS[0], LOW); // 2. 🚨 즉시 끈다! (수면 모드 절대 진입 불가)
+    digitalWrite(SCK_PINS[1], LOW);
+    digitalWrite(SCK_PINS[2], LOW);
 
     // 3. 전기가 꺼진 안전한 상태에서 느긋하게 12개의 핀을 다 읽는다!
     int b0  = digitalRead(DT_PINS[0]);
@@ -286,8 +295,10 @@ void readSensors(long* targetArray, bool* successArray) {
   }
   
   // 마지막 25번째 펄스 (다음 데이터를 위해 필수)
-  digitalWrite(SCK_PIN, HIGH); delayMicroseconds(1);
-  digitalWrite(SCK_PIN, LOW); delayMicroseconds(1);
+  digitalWrite(SCK_PINS[0], HIGH); digitalWrite(SCK_PINS[1], HIGH); digitalWrite(SCK_PINS[2], HIGH);
+  delayMicroseconds(1);
+  digitalWrite(SCK_PINS[0], LOW); digitalWrite(SCK_PINS[1], LOW); digitalWrite(SCK_PINS[2], LOW);
+  delayMicroseconds(1);
 
   // 음수 처리 등 최종 마무리
   for (int i = 0; i < LOADCELL_COUNT; i++) {
