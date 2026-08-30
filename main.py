@@ -32,7 +32,9 @@ DEFAULT_TOLERANCE = 50   # 목표무게 초과 허용치(g)
 TOLERANCE_MAX = 500
 SLOT_NAMES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
 DEFAULT_REF_WEIGHT = 430          # 현장 분동 무게(g)
-CAL_RATIO_MIN, CAL_RATIO_MAX = 0.5, 2.0   # 허용 배율 범위. 벗어나면 분동/저울을 잘못 짚은 것
+CAL_RATIO_MIN, CAL_RATIO_MAX = 0.2, 5.0   # 허용 배율 범위. 현장에 5/10/20kg 로드셀이 섞여 있고
+                                           # 수급 상황에 따라 채널별 용량이 계속 바뀌므로 넉넉히 잡는다.
+                                           # 그래도 벗어나면 분동을 안 올렸거나 잘못 짚은 것으로 본다.
 TARE_DRIFT_WARN = 100             # 지난 영점 대비 이만큼(g) 이상 차이 나면 접시 위 이물 의심
 CLOCK_SANE_YEAR = 2025            # 이보다 이전이면 시계가 아예 안 맞춰진 것
 CLOCK_UNSYNCED_MARK = "(시각미확인)"
