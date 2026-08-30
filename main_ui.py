@@ -284,7 +284,12 @@ class CalibrationDialog(QDialog):
         self.apply_theme()
 
     def set_busy(self, text):
-        """자동 영점처럼 조작하면 안 되는 구간. 버튼을 잠그고 이유를 보여준다."""
+        """자동 영점처럼 조작하면 안 되는 구간. 버튼을 잠그고 이유를 보여준다.
+
+        영점 대기 중엔 손을 떼고 기다려야 한다는 걸 놓치기 쉬우므로, 메인화면
+        영점 오버레이처럼 큼직하게 띄운다.
+        """
+        self.lbl_guide.setFont(QFont(UI_FONT_FAMILY, 22, QFont.Bold))
         self.lbl_guide.setText(text)
         for b in (self.btn_apply, self.btn_skip, self.btn_reset,
                   self.btn_minus, self.btn_plus):
@@ -294,6 +299,7 @@ class CalibrationDialog(QDialog):
         for b in (self.btn_apply, self.btn_skip, self.btn_reset,
                   self.btn_minus, self.btn_plus):
             b.setEnabled(True)
+        self.lbl_guide.setFont(QFont(UI_FONT_FAMILY, 12))
         self.lbl_guide.setText(
             "① 분동 무게를 위에서 맞추세요    "
             "② 파란색 저울에 분동을 올리세요    "
