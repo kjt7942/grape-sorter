@@ -987,10 +987,16 @@ class MainApp(SmartSorterUI):
 
     def begin_calibration_tare(self):
         if not self.serial_thread.is_connected():
-            # 아두이노가 없으면 영점을 잡을 수 없다. 화면 확인 용도로만 열어 준다.
-            self.cal_dialog.set_ready()
-            self.cal_dialog.lbl_guide.setText("아두이노 미연결 - 보정을 저장해도 실제 측정에 쓰이지 않습니다.")
-            self.update_cal_dialog_ui()
+            if not self.in_simulation():
+                # 아두이노가 없으면 영점을 잡을 수 없다. 화면 확인 용도로만 열어 준다.
+                self.cal_dialog.set_ready()
+                self.cal_dialog.lbl_guide.setText("아두이노 미연결 - 보정을 저장해도 실제 측정에 쓰이지 않습니다.")
+                self.update_cal_dialog_ui()
+                return
+            # 개발용 시뮬레이션에서도 영점 대기 화면을 미리 확인할 수 있게 잠깐 보여준다.
+            self.cal_waiting_tare = True
+            self.cal_dialog.set_busy("저울 영점을 잡는 중입니다.\n접시를 비우고 손을 떼세요.")
+            QTimer.singleShot(1200, lambda: self.on_calibration_tare_done(sim=True))
             return
 
         self.cal_waiting_tare = True
@@ -1001,7 +1007,7 @@ class MainApp(SmartSorterUI):
         # 응답이 안 와도 화면이 잠기지 않도록 시한을 둔다.
         QTimer.singleShot(12000, lambda: self.on_calibration_tare_done(timeout=True))
 
-    def on_calibration_tare_done(self, failed=False, timeout=False):
+    def on_calibration_tare_done(self, failed=False, timeout=False, sim=False):
         if not (self.cal_waiting_tare and self.cal_dialog):
             return
         self.cal_waiting_tare = False
@@ -1010,6 +1016,8 @@ class MainApp(SmartSorterUI):
             log.warning("보정 전 영점 실패 (timeout=%s)", timeout)
             self.cal_dialog.lbl_guide.setText(
                 "영점을 잡지 못했습니다. 먼저 저울 연결을 확인하세요.")
+        elif sim:
+            self.cal_dialog.lbl_guide.setText("아두이노 미연결 - 보정을 저장해도 실제 측정에 쓰이지 않습니다.")
         self.update_cal_dialog_ui()
 
     def modify_ref_weight(self, delta):
@@ -1237,6 +1245,13 @@ class MainApp(SmartSorterUI):
                                      self.serial_thread.had_connection)
         self.on_data_received(self.raw_weights)
 
+        # 보태기 트레이(1,2,7,8)의 영점은 모드 전환과 별개다. 박스를 올리고/치운
+        # 뒤 손으로 영점을 눌러야 한다는 걸 놓치기 쉬우므로 안내만 띄운다.
+        if self.is_topup_mode:
+            self.show_message("보태기 모드 켜짐.\n빈 박스를 올리고 영점을 눌러주세요.", 4000)
+        else:
+            self.show_message("보태기 모드 꺼짐.\n박스를 치우고 영점을 눌러주세요.", 4000)
+
     def update_topup_ui(self):
         if self.is_topup_mode:
             self.btn_topup.setStyleSheet("QPushButton { background-color: #2563EB; color: white; border: 2px solid #1E40AF; font-weight: bold; }")
@@ -1399,7 +1414,7 @@ class MainApp(SmartSorterUI):
             if highlight:
                 return "QFrame#ComboCard { border: 3px solid #10B981; background-color: #ECFDF5; border-radius: 20px; margin: 0px; padding: 0px; }"
             else:
-                return "QFrame#ComboCard { border: 3px solid #E5E7EB; background-color: #FFFFFF; border-radius: 20px; margin: 0px; padding: 0px; }"
+                return "QFrame#ComboCard { border: 3px solid #9CA3AF; background-color: #FFFFFF; border-radius: 20px; margin: 0px; padding: 0px; }"
                 
     def on_data_received(self, raw_weights):
         self.raw_weights = raw_weights
@@ -1582,7 +1597,7 @@ class MainApp(SmartSorterUI):
             elif is_combo_tray: 
                 style = "QFrame#Card { background-color: #064E3B; border-radius: 16px; border: 2px solid #059669; margin: 0px; padding: 0px; }" if self.is_dark_mode else "QFrame#Card { background-color: #ECFDF5; border-radius: 16px; border: 2px solid #10B981; margin: 0px; padding: 0px; }"
             else: 
-                style = "QFrame#Card { background-color: #1E1E1E; border-radius: 16px; border: 2px solid #333333; margin: 0px; padding: 0px; }" if self.is_dark_mode else "QFrame#Card { background-color: #FFFFFF; border-radius: 16px; border: 2px solid #E5E7EB; margin: 0px; padding: 0px; }"
+                style = "QFrame#Card { background-color: #1E1E1E; border-radius: 16px; border: 2px solid #333333; margin: 0px; padding: 0px; }" if self.is_dark_mode else "QFrame#Card { background-color: #FFFFFF; border-radius: 16px; border: 2px solid #9CA3AF; margin: 0px; padding: 0px; }"
             
             self.set_cached_style(self.tray_cards[i], style)
         
@@ -1599,7 +1614,8 @@ class MainApp(SmartSorterUI):
             self.combo_val.setText("조합실패")
             # 얼마나 모자란지 알려주면 송이를 더 얹을지 설정을 고칠지 바로 판단된다.
             if near_total is not None and target is not None:
-                self.lbl_combo_title.setText(f"{target - near_total:,}g 부족")
+                # 자릿수가 늘면 가로 폭이 늘어 카드가 흔들린다. 두 줄로 고정폭을 유지한다.
+                self.lbl_combo_title.setText(f"{target - near_total:,}g\n부족")
             else:
                 self.lbl_combo_title.setText("조합무게")
             self.set_cached_style(self.combo_card, self.get_combo_card_style(highlight=False))

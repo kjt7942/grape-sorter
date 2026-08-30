@@ -187,7 +187,9 @@ class CalibrationDialog(QDialog):
         self.btn_minus = HoldButton("-")
         self.btn_minus.setFixedSize(56, 44)
         self.btn_minus.setFont(QFont(UI_FONT_FAMILY, 22, QFont.Bold))
-        self.btn_minus.setStyleSheet("background-color: #4B5563; color: white; border-radius: 10px; padding: 0px;")
+        self.btn_minus.setStyleSheet(
+            "QPushButton { background-color: #4B5563; color: white; border-radius: 10px; padding: 0px; }"
+            "QPushButton:pressed { background-color: #9CA3AF; }")
 
         self.lbl_ref_weight = QLabel(f"무게추: {self.ref_weight:,} g")
         self.lbl_ref_weight.setFont(QFont(UI_FONT_FAMILY, 18, QFont.Bold))
@@ -197,7 +199,9 @@ class CalibrationDialog(QDialog):
         self.btn_plus = HoldButton("+")
         self.btn_plus.setFixedSize(56, 44)
         self.btn_plus.setFont(QFont(UI_FONT_FAMILY, 22, QFont.Bold))
-        self.btn_plus.setStyleSheet("background-color: #4B5563; color: white; border-radius: 10px; padding: 0px;")
+        self.btn_plus.setStyleSheet(
+            "QPushButton { background-color: #4B5563; color: white; border-radius: 10px; padding: 0px; }"
+            "QPushButton:pressed { background-color: #9CA3AF; }")
 
         top_layout.addWidget(self.btn_minus)
         top_layout.addWidget(self.lbl_ref_weight)
@@ -258,22 +262,30 @@ class CalibrationDialog(QDialog):
         self.btn_apply = QPushButton("보정 적용")
         self.btn_apply.setFont(QFont(UI_FONT_FAMILY, 17, QFont.Bold))
         self.btn_apply.setFixedHeight(56)
-        self.btn_apply.setStyleSheet("background-color: #2563EB; color: white; border-radius: 12px; border: none;")
+        self.btn_apply.setStyleSheet(
+            "QPushButton { background-color: #2563EB; color: white; border-radius: 12px; border: none; }"
+            "QPushButton:pressed { background-color: #1E40AF; }")
 
         self.btn_skip = QPushButton("건너뛰기\n(기존값 유지)")
         self.btn_skip.setFont(QFont(UI_FONT_FAMILY, 13, QFont.Bold))
         self.btn_skip.setFixedHeight(56)
-        self.btn_skip.setStyleSheet("background-color: #6B7280; color: white; border-radius: 12px; border: none; padding: 0px;")
+        self.btn_skip.setStyleSheet(
+            "QPushButton { background-color: #6B7280; color: white; border-radius: 12px; border: none; padding: 0px; }"
+            "QPushButton:pressed { background-color: #4B5563; }")
 
         self.btn_reset = QPushButton("초기화\n(배율 1.0)")
         self.btn_reset.setFont(QFont(UI_FONT_FAMILY, 13, QFont.Bold))
         self.btn_reset.setFixedHeight(56)
-        self.btn_reset.setStyleSheet("background-color: #B45309; color: white; border-radius: 12px; border: none; padding: 0px;")
+        self.btn_reset.setStyleSheet(
+            "QPushButton { background-color: #B45309; color: white; border-radius: 12px; border: none; padding: 0px; }"
+            "QPushButton:pressed { background-color: #7C3A0A; }")
 
         self.btn_close = QPushButton("완료")
         self.btn_close.setFont(QFont(UI_FONT_FAMILY, 15, QFont.Bold))
         self.btn_close.setFixedHeight(56)
-        self.btn_close.setStyleSheet("background-color: #EF4444; color: white; border-radius: 12px; border: none;")
+        self.btn_close.setStyleSheet(
+            "QPushButton { background-color: #EF4444; color: white; border-radius: 12px; border: none; }"
+            "QPushButton:pressed { background-color: #B91C1C; }")
 
         bottom_layout.addWidget(self.btn_apply, 3)
         bottom_layout.addWidget(self.btn_skip, 2)
@@ -281,22 +293,49 @@ class CalibrationDialog(QDialog):
         bottom_layout.addWidget(self.btn_close, 2)
 
         layout.addLayout(bottom_layout)
-        self.set_busy("저울 영점을 잡는 중입니다. 손을 떼고 기다리세요.")
+
+        # 메인화면 영점 오버레이와 동일하게, 대기 중엔 화면 가운데에 어두운
+        # 박스로 크게 띄운다. 뒤에 반투명 스크림도 깔아 카드/버튼이 눌러도
+        # 소용없는 상태임을 확실히 보여준다.
+        self.overlay_scrim = QWidget(self)
+        self.overlay_scrim.setStyleSheet("background-color: rgba(0, 0, 0, 0.55);")
+        self.overlay_scrim.setGeometry(0, 0, 800, 480)
+        self.overlay_scrim.hide()
+
+        self.overlay_label = QLabel(self)
+        self.overlay_label.setAlignment(Qt.AlignCenter)
+        self.overlay_label.setWordWrap(True)
+        self.overlay_label.setStyleSheet("""
+            background-color: rgba(0, 0, 0, 0.85);
+            color: white;
+            font-size: 26px;
+            font-family: 'NanumBarunGothic', '나눔바른고딕';
+            font-weight: bold;
+            border-radius: 20px;
+            padding: 30px;
+        """)
+        overlay_w, overlay_h = 680, 180
+        self.overlay_label.setFixedSize(overlay_w, overlay_h)
+        self.overlay_label.move((800 - overlay_w) // 2, (480 - overlay_h) // 2)
+        self.overlay_label.hide()
+
+        self.set_busy("저울 영점을 잡는 중입니다.\n접시를 비우고 손을 떼세요.")
         self.apply_theme()
 
     def set_busy(self, text):
-        """자동 영점처럼 조작하면 안 되는 구간. 버튼을 잠그고 이유를 보여준다.
-
-        영점 대기 중엔 손을 떼고 기다려야 한다는 걸 놓치기 쉬우므로, 메인화면
-        영점 오버레이처럼 큼직하게 띄운다.
-        """
-        self.lbl_guide.setFont(QFont(UI_FONT_FAMILY, 22, QFont.Bold))
-        self.lbl_guide.setText(text)
+        """자동 영점처럼 조작하면 안 되는 구간. 버튼을 잠그고 이유를 보여준다."""
+        self.overlay_label.setText(text)
+        self.overlay_scrim.show()
+        self.overlay_scrim.raise_()
+        self.overlay_label.show()
+        self.overlay_label.raise_()
         for b in (self.btn_apply, self.btn_skip, self.btn_reset,
                   self.btn_minus, self.btn_plus):
             b.setEnabled(False)
 
     def set_ready(self):
+        self.overlay_scrim.hide()
+        self.overlay_label.hide()
         for b in (self.btn_apply, self.btn_skip, self.btn_reset,
                   self.btn_minus, self.btn_plus):
             b.setEnabled(True)
@@ -360,8 +399,7 @@ class ScaleCheckDialog(QDialog):
 
         layout.addLayout(top_layout)
 
-        desc = QLabel("'LED 확인'을 누르면 해당 로드셀 LED가 켜집니다. "
-                      "LED가 깜빡이는 채널은 격리 상태이며, 배선 수리 후 영점(TARE)을 누르면 복구됩니다.")
+        desc = QLabel("'LED 확인'으로 점등 확인. 깜빡이면 격리 상태 - 배선 수리 후 영점(TARE)으로 복구")
         desc.setFont(QFont(UI_FONT_FAMILY, 11))
         desc.setAlignment(Qt.AlignCenter)
         layout.addWidget(desc)
@@ -490,11 +528,11 @@ class SmartSorterUI(QMainWindow):
         QFrame#Card {
             background-color: #FFFFFF;
             border-radius: 16px;
-            border: 2px solid #E5E7EB;
+            border: 2px solid #9CA3AF;
             margin: 0px; padding: 0px;
         }
-        QFrame#ComboCard { 
-            border: 3px solid #E5E7EB; 
+        QFrame#ComboCard {
+            border: 3px solid #9CA3AF;
             background-color: #FFFFFF; 
             border-radius: 20px;
             margin: 0px; padding: 0px;
@@ -502,36 +540,40 @@ class SmartSorterUI(QMainWindow):
         
         QPushButton {
             background-color: #FFFFFF;
-            border: 2px solid #E5E7EB;
+            border: 2px solid #9CA3AF;
             border-radius: 12px;
             color: #4B5563;
             font-family: 'NanumBarunGothic', '나눔바른고딕';
             font-weight: bold;
             padding: 10px;
         }
-        QPushButton:hover { background-color: #F9FAFB; border-color: #D1D5DB; }
-        QPushButton:pressed { background-color: #F3F4F6; }
-        
+        QPushButton:hover { background-color: #F3F4F6; border-color: #9CA3AF; }
+        QPushButton:pressed { background-color: #D1D5DB; border-color: #6B7280; }
+
         QPushButton#ActionBtn {
             background-color: #2563EB;
             color: white;
             border: none;
         }
-        
+
         QPushButton#ControlBtn {
             background-color: #F3F4F6;
-            border: 2px solid #E5E7EB; 
+            border: 2px solid #9CA3AF;
             color: #374151;
             border-radius: 12px;
             padding: 0px;
         }
-        
+        QPushButton#ControlBtn:hover { background-color: #E5E7EB; }
+        QPushButton#ControlBtn:pressed { background-color: #9CA3AF; }
+
         QPushButton#ThemeBtn {
             background-color: #FEE2E2;
             color: #991B1B;
             border: 2px solid #FCA5A5;
             font-size: 16px;
         }
+        QPushButton#ThemeBtn:hover { background-color: #FECACA; }
+        QPushButton#ThemeBtn:pressed { background-color: #FCA5A5; }
     """
 
     DARK_THEME = """
@@ -563,17 +605,25 @@ class SmartSorterUI(QMainWindow):
             color: #E0E0E0;
             padding: 10px;
         }
+        QPushButton:hover { background-color: #3F3F3F; border-color: #595959; }
+        QPushButton:pressed { background-color: #595959; border-color: #808080; }
+
         QPushButton#ControlBtn {
             background-color: #2D2D2D;
             border: 2px solid #404040;
             border-radius: 12px;
             padding: 0px;
         }
+        QPushButton#ControlBtn:hover { background-color: #3F3F3F; }
+        QPushButton#ControlBtn:pressed { background-color: #595959; }
+
         QPushButton#ThemeBtn {
             background-color: #1E3A8A;
             color: #BFDBFE;
             border: 2px solid #3B82F6;
         }
+        QPushButton#ThemeBtn:hover { background-color: #1D4ED8; }
+        QPushButton#ThemeBtn:pressed { background-color: #2563EB; }
     """
 
     def __init__(self):
@@ -690,11 +740,11 @@ class SmartSorterUI(QMainWindow):
         self.btn_topup.setFont(QFont(UI_FONT_FAMILY, 14, QFont.Bold))
         self.btn_topup.setMinimumHeight(55)
         
-        self.btn_register = QPushButton("제품등록")
+        self.btn_register = QPushButton("관리")
         self.btn_register.setFont(QFont(UI_FONT_FAMILY, 14, QFont.Bold))
         self.btn_register.setMinimumHeight(55)
 
-        self.btn_theme_toggle = QPushButton("밤") 
+        self.btn_theme_toggle = QPushButton("어둡게")
         self.btn_theme_toggle.setObjectName("ThemeBtn")
         self.btn_theme_toggle.setFont(QFont(UI_FONT_FAMILY, 14, QFont.Bold)) 
         self.btn_theme_toggle.setMinimumHeight(55)
@@ -834,7 +884,7 @@ class SmartSorterUI(QMainWindow):
     def apply_theme(self):
         if self.is_dark_mode:
             self.setStyleSheet(self.DARK_THEME)
-            self.btn_theme_toggle.setText("낮")
+            self.btn_theme_toggle.setText("밝게")
         else:
             self.setStyleSheet(self.LIGHT_THEME)
-            self.btn_theme_toggle.setText("밤")
+            self.btn_theme_toggle.setText("어둡게")
