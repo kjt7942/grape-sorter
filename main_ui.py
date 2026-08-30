@@ -217,8 +217,9 @@ class CalibrationDialog(QDialog):
         label_numbers = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫']
 
         for i in range(12):
-            card = QFrame()
+            card = ClickableFrame()
             card.setMinimumHeight(95)
+            card.setCursor(Qt.PointingHandCursor)
             card_layout = QVBoxLayout(card)
             card_layout.setContentsMargins(5, 5, 5, 5)
             card_layout.setSpacing(2)

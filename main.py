@@ -972,6 +972,10 @@ class MainApp(SmartSorterUI):
         self.cal_dialog.btn_reset.clicked.connect(self.reset_current_calibration)
         self.cal_dialog.btn_close.clicked.connect(self.cal_dialog.accept)
 
+        # 카드를 직접 눌러 순서를 건너뛰고 그 저울부터 바로 보정할 수 있게 한다.
+        for i, card in enumerate(self.cal_dialog.cal_cards):
+            card.clicked.connect(lambda idx=i: self.select_cal_target(idx))
+
         # 영점이 안 잡힌 상태로 보정하면 접시 무게가 배율에 흡수되어 값이 틀어진다.
         # 조작자가 순서를 지키도록 기대하는 대신, 들어올 때 항상 먼저 잡는다.
         self.begin_calibration_tare()
@@ -1070,6 +1074,15 @@ class MainApp(SmartSorterUI):
             self.cal_dialog.lbl_guide.setText(
                 f"{idx + 1}번 저울 보정 완료 (배율 {new_multiplier:.2f}). "
                 f"다음 저울에 분동을 옮겨 올리세요.")
+
+    def select_cal_target(self, idx):
+        """카드를 직접 눌러 그 저울부터 바로 보정하고 싶을 때. 순서를 강제하지 않는다."""
+        if self.cal_waiting_tare or not self.cal_dialog:
+            return
+        if self.raw_weights[idx] == -1:
+            return  # 연결되지 않은 채널은 보정 대상이 아니다.
+        self.cal_target_idx = idx
+        self.update_cal_dialog_ui()
 
     def advance_cal_target(self):
         self.cal_target_idx += 1
