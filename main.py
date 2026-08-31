@@ -1103,9 +1103,9 @@ class MainApp(SmartSorterUI):
             self.cal_target_idx += 1
 
         if self.cal_target_idx >= LOADCELL_COUNT:
-            self.show_message("모든 저울 보정이 완료되었습니다.", 2000)
-            self.cal_dialog.accept()
-            return
+            # 카드를 직접 눌러 순서 없이 보정할 수 있으므로, 마지막 저울을
+            # 보정했다고 화면을 자동으로 닫지 않는다. 닫는 건 [완료] 버튼으로.
+            self.cal_target_idx = LOADCELL_COUNT - 1
 
         self.cal_dialog.lbl_progress.setText(f"{self.cal_target_idx + 1} / {LOADCELL_COUNT} 번째")
 
