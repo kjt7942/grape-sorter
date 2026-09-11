@@ -44,8 +44,33 @@ def check_recombine(window):
 
 
 def check_production(window, main_mod):
-    """잠긴 조합의 저울이 전부 0이 되면 박스 하나로 기록한다."""
+    """일부만 비우면 선택을 유지하고, 잠긴 저울 전부가 비면 즉시 기록하고
+    잠금을 풀어 바로 다음 조합을 찾는다."""
     W = [1000, 1050, 1020, 1030, 990, 0, 0, 0, 0, 0, 0, 0]
+    window.locked_combo = None
+    window.rejected_combos.clear()
+    window.on_data_received(W)
+    taken = list(window.original_locked_indices)
+
+    # 저울 하나만 비우면(부분 픽업) 몇 틱이 지나도 선택을 유지하고 기록하지 않는다.
+    partial = list(W)
+    partial[taken[0] - 1] = 0
+    for _ in range(5):
+        window.on_data_received(partial)
+    assert sorted(window.original_locked_indices) == sorted(taken), "일부만 비웠는데 선택이 풀림"
+    assert not os.path.exists(main_mod.PRODUCTION_FILE), "아직 다 안 비웠는데 기록됨"
+    h.ok("일부 저울만 비우면 선택 유지, 미기록")
+
+    # 비운 저울에 300g 이상 새 송이가 올라오면 그 저울만 선택이 풀린다.
+    refilled = list(partial)
+    refilled[taken[0] - 1] = 500
+    window.on_data_received(refilled)
+    currently_selected = [item[0] for item in (window.locked_combo or [])]
+    assert taken[0] not in currently_selected, "300g 이상 재적재됐는데 선택이 안 풀림"
+    assert taken[1] in currently_selected, "재적재 안 한 저울까지 선택이 풀림"
+    h.ok("300g 이상 재적재된 저울만 선택 해제")
+
+    # 잠긴 저울 전부가 동시에 비면 즉시 기록하고, 남은 저울로 바로 다음 조합을 찾는다.
     window.locked_combo = None
     window.rejected_combos.clear()
     window.on_data_received(W)
@@ -64,22 +89,10 @@ def check_production(window, main_mod):
     assert int(rows[1][3]) >= int(rows[1][2]), "미달 박스가 기록됨"
     h.ok(f"박스 완성 기록 {rows[1][3]}g (목표 {rows[1][2]}g)")
 
-    # 비운 저울은 선택이 계속 유지되므로, 빈 채로 몇 틱을 더 받아도 중복 기록되면 안 된다.
-    assert sorted(window.original_locked_indices) == sorted(taken), "비웠는데 선택이 풀림"
-    for _ in range(5):
-        window.on_data_received(emptied)
-    with open(main_mod.PRODUCTION_FILE, encoding="utf-8-sig") as f:
-        rows = list(csv.reader(f))
-    assert len(rows) == 2, f"빈 상태가 유지되는 동안 중복 기록됨: {rows}"
-    h.ok("저울을 비운 채로 유지돼도 실적은 한 번만 기록")
-
-    # 비운 저울에 300g 이상 새 송이가 올라오면 그 저울만 선택이 풀린다.
-    refilled = list(emptied)
-    refilled[taken[0] - 1] = 500
-    window.on_data_received(refilled)
-    currently_selected = [item[0] for item in (window.locked_combo or [])]
-    assert taken[0] not in currently_selected, "300g 이상 재적재됐는데 선택이 안 풀림"
-    h.ok("재적재된 저울은 다음 조합에 다시 쓰일 수 있게 선택 해제")
+    remaining = [item[0] for item in (window.locked_combo or [])]
+    assert remaining and set(remaining).isdisjoint(taken), \
+        f"박스를 전부 비웠는데 바로 다음 조합을 못 찾음: {remaining}"
+    h.ok(f"박스를 전부 비우면 즉시 잠금 풀고 남은 저울로 다음 조합 {remaining} 을 찾음")
 
     window.locked_combo = None
     window.rejected_combos.clear()

@@ -1556,14 +1556,16 @@ class MainApp(SmartSorterUI):
                     # 미세한 변화다. 계속 선택 상태를 유지한다.
                     still_locked.append((idx1, w))
 
-            # 잠긴 저울이 전부 한 번은 0으로 찍혔으면 박스를 담아 간 것. -1(ERR)은
-            # 통신 두절이므로 실적으로 세지 않는다. 조합 하나당 한 번만 기록한다.
-            if not self._box_recorded and all(self.weights[i - 1] == 0 for i in self.original_locked_indices):
-                self.record_box()
-                self._box_recorded = True
+            # 잠긴 저울 전부가 동시에 0이면 박스를 통째로 치운 것. 개별 저울의
+            # 재적재를 기다리지 않고 바로 잠금을 풀어 남은 저울로 다음 조합을
+            # 찾는다. -1(ERR)은 통신 두절이므로 실적으로 세지 않는다.
+            if all(self.weights[i - 1] == 0 for i in self.original_locked_indices):
+                if not self._box_recorded:
+                    self.record_box()
+                    self._box_recorded = True
+                still_locked = []
 
             if not still_locked:
-                # 저울 전부에 새 송이가 올라와 다음 조합 계산으로 완전히 넘어간다.
                 self.locked_combo = None
                 self.locked_sum = 0
                 self.original_locked_indices = []
