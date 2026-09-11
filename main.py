@@ -38,6 +38,8 @@ CAL_RATIO_MIN, CAL_RATIO_MAX = 0.2, 5.0   # 허용 배율 범위. 현장에 5/10
 TARE_DRIFT_WARN = 100             # 지난 영점 대비 이만큼(g) 이상 차이 나면 접시 위 이물 의심
 CLOCK_SANE_YEAR = 2025            # 이보다 이전이면 시계가 아예 안 맞춰진 것
 CLOCK_UNSYNCED_MARK = "(시각미확인)"
+WEIGHT_STEP = 5                   # 1g 단위는 노이즈로 수시로 바뀌어 5g 단위로 반올림해 표시/연산한다.
+REFILL_WEIGHT_THRESHOLD = 300     # 잠금 중 비워진 저울에 이 이상 다시 찍히면 새 송이로 보고 선택 해제한다.
 
 # 가짜 무게를 만드는 시뮬레이션은 개발용이다. 현장 기기(라즈베리파이)에서
 # 가짜 데이터가 화면에 뜨면 조작자가 정상으로 오인하므로 원천 차단한다.
@@ -401,6 +403,9 @@ class MainApp(SmartSorterUI):
         self.is_dark_mode = last_state.get("is_dark_mode", True)
         self.current_preset_index = last_state.get("current_preset_index", None)
         self.is_topup_mode = last_state.get("is_topup_mode", False)
+        # 꺼지면 조합을 아예 잠그지 않는다(매 틱 재계산, 실적 미기록). 설치/테스트용.
+        # 켜지면 조합을 잠그되, 저울값이 순간적으로 0 이하로 튀어도 즉시 빼지 않는다.
+        self.combo_lock_enabled = last_state.get("combo_lock_enabled", True)
 
         self.cal_multipliers = self.settings_data.get("cal_multipliers", [1.0] * LOADCELL_COUNT)
         self.cal_ref_weight = self.settings_data.get("cal_ref_weight", DEFAULT_REF_WEIGHT)
@@ -420,6 +425,12 @@ class MainApp(SmartSorterUI):
         self.locked_topup = 0
         self._clock_warned = False
         self.original_locked_indices = []
+        # 잠금 중 한 번이라도 0 이하로 찍힌 적 있는 저울 번호(1-based). 이후
+        # 새 송이(REFILL_WEIGHT_THRESHOLD 이상)가 올라와야 선택이 풀린다.
+        self._emptied_locked = set()
+        # 지금 잠긴 조합의 박스 완료를 이미 실적에 남겼는지. 저울을 비운 채로
+        # 유지되는 동안 매 틱 중복 기록되지 않게 막는다.
+        self._box_recorded = False
         # 조작자가 조합무게 카드를 눌러 거절한 조합들. 저울 구성이 바뀌면 비운다.
         self.rejected_combos = set()
         self._occupancy = None
@@ -804,7 +815,8 @@ class MainApp(SmartSorterUI):
             "tolerance": self.tolerance,
             "is_dark_mode": self.is_dark_mode,
             "current_preset_index": self.current_preset_index,
-            "is_topup_mode": self.is_topup_mode
+            "is_topup_mode": self.is_topup_mode,
+            "combo_lock_enabled": self.combo_lock_enabled
         }
         self.settings_data["cal_multipliers"] = self.cal_multipliers
         self.settings_data["cal_ref_weight"] = self.cal_ref_weight
@@ -921,6 +933,14 @@ class MainApp(SmartSorterUI):
     def in_simulation(self):
         """개발용 시뮬레이션 모드인지. 장치가 빠진 상태는 시뮬이 아니다."""
         return not self.serial_thread.is_connected() and not self.serial_thread.had_connection
+
+    def _schedule_sim_refill(self, idx_1based):
+        """시뮬레이션 전용: 저울 하나가 비워지면 잠시 뒤 새 송이 무게를 채워
+        넣어, 실기 없이도 '비움 -> 재적재로 선택 해제' 순환을 확인할 수 있게 한다."""
+        def refill():
+            self.serial_thread.sim_weights[idx_1based - 1] = random.randint(500, 1000)
+            self.serial_thread.data_received.emit(list(self.serial_thread.sim_weights))
+        QTimer.singleShot(300, refill)
 
     def force_unlock(self):
         """조합무게 카드 터치 = 이 조합 거절, 다른 조합 요청.
@@ -1256,7 +1276,19 @@ class MainApp(SmartSorterUI):
         if self.is_topup_mode:
             self.btn_topup.setStyleSheet("QPushButton { background-color: #2563EB; color: white; border: 2px solid #1E40AF; font-weight: bold; }")
         else:
-            self.btn_topup.setStyleSheet("") 
+            self.btn_topup.setStyleSheet("")
+
+    def toggle_combo_lock(self, dialog):
+        # 다이얼로그가 화면을 덮고 있어 메인 오버레이 메시지는 안 보인다.
+        # 버튼 자체의 켜짐/꺼짐 표시로 피드백을 대신한다.
+        self.combo_lock_enabled = not self.combo_lock_enabled
+        self._emptied_locked.clear()
+        self._box_recorded = False
+        self.locked_combo = None
+        self.locked_sum = 0
+        self.original_locked_indices = []
+        self.save_settings()
+        dialog.set_lock_toggle_state(self.combo_lock_enabled)
 
     def cycle_preset(self, direction):
         presets = self.settings_data.get("presets", [])
@@ -1275,6 +1307,8 @@ class MainApp(SmartSorterUI):
 
         dialog.btn_clear.clicked.connect(lambda: self.clear_all_presets(dialog))
         dialog.btn_scale_check.clicked.connect(self.show_scale_check_dialog)
+        dialog.set_lock_toggle_state(self.combo_lock_enabled)
+        dialog.btn_lock_toggle.clicked.connect(lambda: self.toggle_combo_lock(dialog))
 
         for i, btn in enumerate(dialog.preset_buttons):
             self.refresh_preset_button(btn, i)
@@ -1423,10 +1457,13 @@ class MainApp(SmartSorterUI):
         calibrated_weights = []
         for i, w in enumerate(raw_weights):
             if w > 0:
-                calibrated_weights.append(int(w * self.cal_multipliers[i]))
+                # 1g 단위는 로드셀 노이즈로 수시로 바뀌어 화면이 불안정해 보인다.
+                # 5g 단위로 반올림해 표시와 조합 연산 모두에 쓴다.
+                calibrated = w * self.cal_multipliers[i]
+                calibrated_weights.append(round(calibrated / WEIGHT_STEP) * WEIGHT_STEP)
             else:
                 calibrated_weights.append(w)
-                
+
         self.weights = calibrated_weights
 
         # 저울 구성(어디에 뭐가 올라가 있는지)이 바뀌면 거절 이력은 의미가 없다.
@@ -1482,28 +1519,56 @@ class MainApp(SmartSorterUI):
                 if self.weights[i] > 0:
                     topup_sum += self.weights[i]
 
+        if not self.combo_lock_enabled:
+            # 잠금 기능 자체가 꺼진 상태. 조합을 유지하지 않고 매 틱 새로 계산해
+            # 보여주기만 한다. 완성 판정 기준(잠긴 조합)이 없으므로 실적도 남기지
+            # 않는다. 현장 운영용이 아니라 설치·테스트 중 임시로만 쓰는 모드.
+            valid_items = []
+            for i, w in enumerate(self.weights):
+                if w > 0:
+                    if not (self.is_topup_mode and i in [0, 1, 6, 7]):
+                        valid_items.append((i + 1, w))
+            current_target = target - topup_sum if self.is_topup_mode else target
+            result = best_combination(valid_items, current_target, min_c, max_c, self.tolerance)
+            self.render_combo_result(result.combo, result.total, topup_sum,
+                                     near_total=result.near_total, target=current_target)
+            return
+
         if self.locked_combo is not None:
             still_locked = []
             for item in self.locked_combo:
-                idx = item[0] - 1
-                if self.weights[idx] > 0:
-                    still_locked.append((item[0], self.weights[idx]))
-            
+                idx1 = item[0]
+                w = self.weights[idx1 - 1]
+                if w <= 0:
+                    if idx1 not in self._emptied_locked:
+                        self._emptied_locked.add(idx1)
+                        if self.in_simulation():
+                            self._schedule_sim_refill(idx1)
+                    # 비워졌어도 선택 상태와 LED는 그대로 유지한다. 새 송이가
+                    # 올라오기 전까진 이 저울을 다음 조합 계산에서 빼지 않는다.
+                    still_locked.append((idx1, w))
+                elif idx1 in self._emptied_locked and w >= REFILL_WEIGHT_THRESHOLD:
+                    # 비워졌던 저울에 새 송이(300g 이상)가 올라왔다. 선택을 풀어
+                    # 다음 조합 계산에 다시 쓸 수 있게 한다.
+                    self._emptied_locked.discard(idx1)
+                else:
+                    # 아직 한 번도 비워진 적 없거나(원래 송이 그대로), 300g 미만의
+                    # 미세한 변화다. 계속 선택 상태를 유지한다.
+                    still_locked.append((idx1, w))
+
+            # 잠긴 저울이 전부 한 번은 0으로 찍혔으면 박스를 담아 간 것. -1(ERR)은
+            # 통신 두절이므로 실적으로 세지 않는다. 조합 하나당 한 번만 기록한다.
+            if not self._box_recorded and all(self.weights[i - 1] == 0 for i in self.original_locked_indices):
+                self.record_box()
+                self._box_recorded = True
+
             if not still_locked:
-                # 잠긴 저울이 전부 0 이면 박스를 담아 간 것. -1(ERR)은 통신 두절이므로
-                # 실적으로 세지 않는다.
-                if all(self.weights[i - 1] == 0 for i in self.original_locked_indices):
-                    self.record_box()
-
-                if self.in_simulation():
-                    for idx_1based in self.original_locked_indices:
-                        idx = idx_1based - 1
-                        self.serial_thread.sim_weights[idx] = random.randint(500, 1000)
-                    QTimer.singleShot(100, lambda: self.serial_thread.data_received.emit(list(self.serial_thread.sim_weights)))
-
+                # 저울 전부에 새 송이가 올라와 다음 조합 계산으로 완전히 넘어간다.
                 self.locked_combo = None
                 self.locked_sum = 0
                 self.original_locked_indices = []
+                self._box_recorded = False
+                self._emptied_locked.clear()
             else:
                 self.locked_combo = still_locked
                 self.render_combo_result(self.locked_combo, self.locked_sum, topup_sum)
@@ -1529,6 +1594,8 @@ class MainApp(SmartSorterUI):
         if result.combo is not None:
             self.locked_combo = result.combo
             self.locked_sum = result.total
+            self._emptied_locked.clear()
+            self._box_recorded = False
             # 실적에는 박스 전체를 남겨야 하므로 목표와 박스 무게를 따로 보관한다.
             # 보태기 모드에서 current_target 은 '더 보태야 할 양'일 뿐이다.
             self.locked_target = target

@@ -97,6 +97,12 @@ class PresetDialog(QDialog):
         self.btn_clear.setFixedSize(100, 45)
         title_layout.addWidget(self.btn_clear)
 
+        self.btn_lock_toggle = QPushButton("조합잠금:켜짐")
+        self.btn_lock_toggle.setObjectName("LockToggleBtn")
+        self.btn_lock_toggle.setFont(QFont(UI_FONT_FAMILY, 13, QFont.Bold))
+        self.btn_lock_toggle.setFixedSize(150, 45)
+        title_layout.addWidget(self.btn_lock_toggle)
+
         layout.addLayout(title_layout)
         
         desc = QLabel("버튼을 짧게 터치하면 불러오기, 2초간 길게 누르면 현재 설정이 저장됩니다.")
@@ -121,8 +127,21 @@ class PresetDialog(QDialog):
         btn_close.setFixedHeight(60)
         btn_close.clicked.connect(self.accept)
         layout.addWidget(btn_close)
-        
+
         self.apply_theme()
+
+    def set_lock_toggle_state(self, enabled):
+        self.btn_lock_toggle.setText("조합잠금:켜짐" if enabled else "조합잠금:꺼짐")
+        if enabled:
+            self.btn_lock_toggle.setStyleSheet(
+                "QPushButton#LockToggleBtn { background-color: #059669; color: white; border: none; }"
+                "QPushButton#LockToggleBtn:hover { background-color: #047857; }"
+                "QPushButton#LockToggleBtn:pressed { background-color: #065F46; }")
+        else:
+            self.btn_lock_toggle.setStyleSheet(
+                "QPushButton#LockToggleBtn { background-color: #6B7280; color: white; border: none; }"
+                "QPushButton#LockToggleBtn:hover { background-color: #4B5563; }"
+                "QPushButton#LockToggleBtn:pressed { background-color: #374151; }")
 
     def apply_theme(self):
         if self.is_dark_mode:

@@ -64,6 +64,26 @@ def check_production(window, main_mod):
     assert int(rows[1][3]) >= int(rows[1][2]), "미달 박스가 기록됨"
     h.ok(f"박스 완성 기록 {rows[1][3]}g (목표 {rows[1][2]}g)")
 
+    # 비운 저울은 선택이 계속 유지되므로, 빈 채로 몇 틱을 더 받아도 중복 기록되면 안 된다.
+    assert sorted(window.original_locked_indices) == sorted(taken), "비웠는데 선택이 풀림"
+    for _ in range(5):
+        window.on_data_received(emptied)
+    with open(main_mod.PRODUCTION_FILE, encoding="utf-8-sig") as f:
+        rows = list(csv.reader(f))
+    assert len(rows) == 2, f"빈 상태가 유지되는 동안 중복 기록됨: {rows}"
+    h.ok("저울을 비운 채로 유지돼도 실적은 한 번만 기록")
+
+    # 비운 저울에 300g 이상 새 송이가 올라오면 그 저울만 선택이 풀린다.
+    refilled = list(emptied)
+    refilled[taken[0] - 1] = 500
+    window.on_data_received(refilled)
+    currently_selected = [item[0] for item in (window.locked_combo or [])]
+    assert taken[0] not in currently_selected, "300g 이상 재적재됐는데 선택이 안 풀림"
+    h.ok("재적재된 저울은 다음 조합에 다시 쓰일 수 있게 선택 해제")
+
+    window.locked_combo = None
+    window.rejected_combos.clear()
+
     # 통신이 끊겨 전 채널 ERR 이 된 것은 박스가 아니다.
     before = len(rows)
     window.locked_combo = None

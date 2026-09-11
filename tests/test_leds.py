@@ -77,10 +77,46 @@ def main():
     assert sent == ["<1,2>"], f"재연결 후 LED 가 꺼진 채로 남음: {sent}"
     h.ok("재연결 시 LED 재전송")
 
+    # 조합 잠금 중엔 저울을 비워도(값이 0으로 튀어도) 선택과 LED를 그대로
+    # 유지한다. 300g 이상 새 송이가 올라와야만 그 저울의 선택이 풀린다.
+    sent.clear()
+    window.on_data_received([1000, 0] + [0] * 10)   # 저울 2 를 비움
+    assert sent == [], f"비웠는데 LED 가 바뀜(선택 해제됨): {sent}"
+    h.ok("저울을 비워도 선택과 LED 유지")
+
+    sent.clear()
+    window.on_data_received([1000, 200] + [0] * 10)   # 200g: 새 송이로 보기엔 부족
+    assert sent == [], f"300g 미만인데 선택이 풀림: {sent}"
+    h.ok("300g 미만 재적재는 선택 해제로 안 봄")
+
+    sent.clear()
+    window.on_data_received([1000, 500] + [0] * 10)   # 500g: 새 송이로 인정
+    assert sent == ["<1>"], sent
+    h.ok("300g 이상 재적재 시 그 저울만 선택 해제")
+
+    # 잠금 기능 자체를 끄면 매 틱 새로 계산해서 보여주기만 한다. 디바운스도,
+    # 이전 조합에 대한 고정도 없다.
+    window.locked_combo = None
+    window.on_data_received(A)
+    window.combo_lock_enabled = False
+
+    sent.clear()
+    window.on_data_received(A)
+    assert sent == [], f"동일 조합인데 재전송: {sent}"
+    h.ok("잠금 꺼짐이어도 같은 조합 반복 시 재전송 없음")
+
     sent.clear()
     window.on_data_received([1000] + [0] * 11)
-    assert sent == ["<1>"], sent
-    h.ok("저울을 빼가면 남은 저울만 점등")
+    assert sent == ["<>"], f"잠금 꺼짐인데 조건 미달로 바로 안 꺼짐: {sent}"
+    h.ok("잠금 꺼짐: 저울 하나 빠져 조건 미달이면 디바운스 없이 즉시 소등")
+
+    sent.clear()
+    window.on_data_received(A)
+    assert sent == ["<1,2>"], sent
+    h.ok("잠금 꺼짐: 조건이 다시 충족되면 즉시 재점등")
+
+    window.combo_lock_enabled = True
+    window.locked_combo = None
 
     h.teardown(window)
 
