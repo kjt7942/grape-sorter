@@ -425,9 +425,10 @@ class MainApp(SmartSorterUI):
         self.locked_topup = 0
         self._clock_warned = False
         self.original_locked_indices = []
-        # 잠금 중 한 번이라도 0 이하로 찍힌 적 있는 저울 번호(1-based). 이후
-        # 새 송이(REFILL_WEIGHT_THRESHOLD 이상)가 올라와야 선택이 풀린다.
-        self._emptied_locked = set()
+        # 잠금 중 0 이하로 찍힌 적 있는 저울 번호(1-based) -> 비워지기 직전 무게.
+        # 새 송이(REFILL_WEIGHT_THRESHOLD 이상)가 올라와야 선택이 풀리고,
+        # 그 전까진 이 무게로 조합무게 총합에 계속 기여한다.
+        self._emptied_locked = {}
         # 지금 잠긴 조합의 박스 완료를 이미 실적에 남겼는지. 저울을 비운 채로
         # 유지되는 동안 매 틱 중복 기록되지 않게 막는다.
         self._box_recorded = False
@@ -1536,25 +1537,34 @@ class MainApp(SmartSorterUI):
 
         if self.locked_combo is not None:
             still_locked = []
+            live_sum = 0
             for item in self.locked_combo:
                 idx1 = item[0]
                 w = self.weights[idx1 - 1]
                 if w <= 0:
                     if idx1 not in self._emptied_locked:
-                        self._emptied_locked.add(idx1)
+                        # 비워지기 직전 무게로 이 저울의 기여분을 고정해 둔다.
+                        self._emptied_locked[idx1] = item[1] if item[1] > 0 else 0
                         if self.in_simulation():
                             self._schedule_sim_refill(idx1)
                     # 비워졌어도 선택 상태와 LED는 그대로 유지한다. 새 송이가
                     # 올라오기 전까진 이 저울을 다음 조합 계산에서 빼지 않는다.
                     still_locked.append((idx1, w))
+                    live_sum += self._emptied_locked[idx1]
                 elif idx1 in self._emptied_locked and w >= REFILL_WEIGHT_THRESHOLD:
                     # 비워졌던 저울에 새 송이(300g 이상)가 올라왔다. 선택을 풀어
                     # 다음 조합 계산에 다시 쓸 수 있게 한다.
-                    self._emptied_locked.discard(idx1)
+                    self._emptied_locked.pop(idx1, None)
                 else:
                     # 아직 한 번도 비워진 적 없거나(원래 송이 그대로), 300g 미만의
                     # 미세한 변화다. 계속 선택 상태를 유지한다.
                     still_locked.append((idx1, w))
+                    live_sum += w
+
+            # 포도가 자리 잡으며 무게가 더 붙는 경우를 조합무게에 반영한다. 단,
+            # 이미 담아간(비워진) 저울 때문에 줄어들지는 않게 한다 — 이 박스가
+            # 얼마여야 하는지는 한번 정해지면 픽업 중엔 고정이어야 한다.
+            self.locked_sum = max(self.locked_sum, live_sum)
 
             # 잠긴 저울 전부가 동시에 0이면 박스를 통째로 치운 것. 개별 저울의
             # 재적재를 기다리지 않고 바로 잠금을 풀어 남은 저울로 다음 조합을

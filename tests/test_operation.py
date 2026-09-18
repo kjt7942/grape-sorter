@@ -43,10 +43,44 @@ def check_recombine(window):
     h.ok("저울 구성 변경 시 거절 이력 초기화")
 
 
+def check_locked_sum_tracks_settling(window):
+    """포도가 자리 잡으며(정착) 잠긴 저울 무게가 늘면 조합무게도 따라 올라가야
+    한다. 합계(전체 무게)는 항상 라이브라 실제 무게와 일치하는데, 조합무게가
+    잠근 시점 값에 멈춰 있으면 둘이 어긋나 보인다."""
+    W = [700, 630, 0, 0, 750, 0, 0, 0, 0, 0, 0, 0]
+    window.target_weight, window.min_comb, window.max_comb, window.tolerance = 2030, 3, 4, 150
+    window.current_preset_index = None
+    window.locked_combo = None
+    window.rejected_combos.clear()
+    window.on_data_received(W)
+    taken = sorted(window.original_locked_indices)
+    assert taken == [1, 2, 5], taken
+    assert window.locked_sum == 2080, window.locked_sum
+
+    settled = list(W)
+    settled[0] = 730  # 정착: 700 -> 730
+    window.on_data_received(settled)
+    assert sorted(window.original_locked_indices) == taken, "정착 중 조합이 바뀜"
+    assert window.locked_sum == 2110, f"정착으로 늘어난 무게가 조합무게에 반영 안 됨: {window.locked_sum}"
+    h.ok(f"저울 무게가 정착으로 늘어나면 조합무게도 따라 증가 ({window.locked_sum}g)")
+
+    # 픽업이 시작(하나가 비워짐)된 뒤로는 그 저울 몫이 고정돼 총합이 줄지 않는다.
+    picking = list(settled)
+    picking[4] = 0  # 5번(750) 픽업 시작
+    window.on_data_received(picking)
+    assert window.locked_sum == 2110, "픽업이 시작됐는데 조합무게가 줄어듦"
+    h.ok("픽업 시작 후에도 조합무게가 줄지 않고 유지")
+
+    window.locked_combo = None
+    window.rejected_combos.clear()
+
+
 def check_production(window, main_mod):
     """일부만 비우면 선택을 유지하고, 잠긴 저울 전부가 비면 즉시 기록하고
     잠금을 풀어 바로 다음 조합을 찾는다."""
     W = [1000, 1050, 1020, 1030, 990, 0, 0, 0, 0, 0, 0, 0]
+    window.target_weight, window.min_comb, window.max_comb, window.tolerance = 2050, 2, 2, 50
+    window.current_preset_index = None
     window.locked_combo = None
     window.rejected_combos.clear()
     window.on_data_received(W)
@@ -284,6 +318,7 @@ def main():
     window, sent = h.new_app(main_mod)
 
     check_recombine(window)
+    check_locked_sum_tracks_settling(window)
     check_production(window, main_mod)
     check_topup_production(window, main_mod)
     check_clock_marking(window, main_mod)
