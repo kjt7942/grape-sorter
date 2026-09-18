@@ -44,9 +44,10 @@ def check_recombine(window):
 
 
 def check_locked_sum_tracks_settling(window):
-    """포도가 자리 잡으며(정착) 잠긴 저울 무게가 늘면 조합무게도 따라 올라가야
-    한다. 합계(전체 무게)는 항상 라이브라 실제 무게와 일치하는데, 조합무게가
-    잠근 시점 값에 멈춰 있으면 둘이 어긋나 보인다."""
+    """포도가 자리 잡으며(정착) 잠긴 저울 무게가 늘면, 그 값이 잠깐 동안
+    유지될 때만(손으로 스친 순간값이 아닐 때만) 조합무게에 반영해야 한다.
+    합계(전체 무게)는 항상 라이브라 실제 무게와 일치하는데, 조합무게가 잠근
+    시점 값에 멈춰 있으면 둘이 어긋나 보인다."""
     W = [700, 630, 0, 0, 750, 0, 0, 0, 0, 0, 0, 0]
     window.target_weight, window.min_comb, window.max_comb, window.tolerance = 2030, 3, 4, 150
     window.current_preset_index = None
@@ -60,16 +61,31 @@ def check_locked_sum_tracks_settling(window):
     settled = list(W)
     settled[0] = 730  # 정착: 700 -> 730
     window.on_data_received(settled)
+    assert window.locked_sum == 2080, "안정화 시간 전에 바로 반영됨 (순간값에 취약)"
+    h.wait(600)
+    window.on_data_received(settled)
     assert sorted(window.original_locked_indices) == taken, "정착 중 조합이 바뀜"
-    assert window.locked_sum == 2110, f"정착으로 늘어난 무게가 조합무게에 반영 안 됨: {window.locked_sum}"
-    h.ok(f"저울 무게가 정착으로 늘어나면 조합무게도 따라 증가 ({window.locked_sum}g)")
+    assert window.locked_sum == 2110, f"안정화된 무게가 조합무게에 반영 안 됨: {window.locked_sum}"
+    h.ok(f"같은 무게가 유지되면 조합무게에 반영 ({window.locked_sum}g)")
 
-    # 픽업이 시작(하나가 비워짐)된 뒤로는 그 저울 몫이 고정돼 총합이 줄지 않는다.
+    # 손으로 잠깐 눌렀다 뗀 것 같은 순간값은 안정화가 안 되니 반영되면 안 된다.
+    bump = list(settled)
+    bump[0] = 900
+    window.on_data_received(bump)
+    window.on_data_received(settled)  # 곧바로 원래 정착값으로 복귀
+    assert window.locked_sum == 2110, "순간적으로 눌린 값이 조합무게에 반영됨"
+    h.ok("순간적으로 눌린 값(안정화 전 복귀)은 반영 안 함")
+
+    # 픽업이 시작(하나가 비워짐)된 뒤로는 조합무게를 더 이상 바꾸지 않는다.
     picking = list(settled)
     picking[4] = 0  # 5번(750) 픽업 시작
     window.on_data_received(picking)
-    assert window.locked_sum == 2110, "픽업이 시작됐는데 조합무게가 줄어듦"
-    h.ok("픽업 시작 후에도 조합무게가 줄지 않고 유지")
+    assert window.locked_sum == 2110, "픽업이 시작됐는데 조합무게가 바뀜"
+    h.wait(600)
+    picking[0] = 900  # 픽업 후 다른 저울에 무게가 더 얹혀도(비정상 상황) 무시
+    window.on_data_received(picking)
+    assert window.locked_sum == 2110, "픽업 시작 후에도 조합무게가 바뀜"
+    h.ok("픽업 시작 후에는 조합무게가 완전히 고정")
 
     window.locked_combo = None
     window.rejected_combos.clear()
