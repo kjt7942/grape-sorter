@@ -72,7 +72,6 @@ def check_production_partial(window, main_mod):
 def check_full(window, sent, main_ui):
     window.locked_combo = None
     window._last_led = None
-    window.rejected_combos.clear()
     window.target_weight, window.min_comb, window.max_comb = 2050, 3, 4
     sent.clear()
     window.on_data_received(FULL)

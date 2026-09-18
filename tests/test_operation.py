@@ -7,16 +7,15 @@ import harness as h
 
 
 def check_recombine(window):
-    """조합무게 카드 터치는 그 조합을 거절하고 차선을 내놔야 한다.
+    """조합무게 카드 터치는 잠금을 풀고 다시 최적 조합을 찾는다.
 
-    탐색이 결정적이라, 거절 목록이 없으면 실기에서 같은 답이 되돌아온다.
-    (시뮬레이션은 무게를 새로 만들기 때문에 동작하는 것처럼 보였다)
+    저울 무게가 그대로면 탐색은 결정적이라 같은(유일한) 최적 조합이
+    다시 나오는 게 맞다 — 더 이상 거절 이력으로 차선을 강제하지 않는다.
     """
     W = [1000, 1050, 1020, 1030, 990, 0, 0, 0, 0, 0, 0, 0]
     window.target_weight, window.min_comb, window.max_comb, window.tolerance = 2050, 2, 2, 50
     window.current_preset_index = None
     window.locked_combo = None
-    window.rejected_combos.clear()
 
     window.on_data_received(W)
     first = sorted(window.original_locked_indices)
@@ -24,23 +23,16 @@ def check_recombine(window):
 
     window.force_unlock()
     second = sorted(window.original_locked_indices)
-    assert second and second != first, f"실기에서 재조합 안 됨: {first} -> {second}"
-    h.ok(f"카드 터치 시 차선 조합 제시 ({first} -> {second})")
+    assert second == first, f"저울이 그대로인데 다른 조합이 나옴: {first} -> {second}"
+    h.ok(f"카드 터치: 저울이 그대로면 같은 최적 조합을 다시 선택 ({second})")
 
-    seen = {tuple(first), tuple(second)}
-    for _ in range(10):
-        window.force_unlock()
-        assert window.original_locked_indices, "후보 소진 후 조합이 사라짐"
-        seen.add(tuple(sorted(window.original_locked_indices)))
-    h.ok(f"후보 소진 후 순환 (본 조합 {len(seen)}가지)")
-
-    # 저울 구성이 바뀌면 거절 이력은 의미가 없다.
-    window.rejected_combos.add(frozenset([1, 2]))
+    # 저울 구성이 바뀌면 그에 맞는 새 최적 조합을 찾는다.
     changed = list(W)
-    changed[5] = 800
+    changed[5] = 800  # 6번 저울에도 무게가 올라옴
+    window.locked_combo = None
     window.on_data_received(changed)
-    assert not window.rejected_combos, "구성이 바뀌었는데 거절 이력이 남음"
-    h.ok("저울 구성 변경 시 거절 이력 초기화")
+    assert window.original_locked_indices, "구성이 바뀌었는데 조합을 못 찾음"
+    h.ok(f"저울 구성이 바뀌면 새 최적 조합 탐색 ({sorted(window.original_locked_indices)})")
 
 
 def check_locked_sum_tracks_settling(window):
@@ -52,7 +44,6 @@ def check_locked_sum_tracks_settling(window):
     window.target_weight, window.min_comb, window.max_comb, window.tolerance = 2030, 3, 4, 150
     window.current_preset_index = None
     window.locked_combo = None
-    window.rejected_combos.clear()
     window.on_data_received(W)
     taken = sorted(window.original_locked_indices)
     assert taken == [1, 2, 5], taken
@@ -88,7 +79,6 @@ def check_locked_sum_tracks_settling(window):
     h.ok("픽업 시작 후에는 조합무게가 완전히 고정")
 
     window.locked_combo = None
-    window.rejected_combos.clear()
 
 
 def check_production(window, main_mod):
@@ -98,7 +88,6 @@ def check_production(window, main_mod):
     window.target_weight, window.min_comb, window.max_comb, window.tolerance = 2050, 2, 2, 50
     window.current_preset_index = None
     window.locked_combo = None
-    window.rejected_combos.clear()
     window.on_data_received(W)
     taken = list(window.original_locked_indices)
 
@@ -122,7 +111,6 @@ def check_production(window, main_mod):
 
     # 잠긴 저울 전부가 동시에 비면 즉시 기록하고, 남은 저울로 바로 다음 조합을 찾는다.
     window.locked_combo = None
-    window.rejected_combos.clear()
     window.on_data_received(W)
     taken = list(window.original_locked_indices)
     target, total = window.locked_target, window.locked_sum
@@ -145,7 +133,6 @@ def check_production(window, main_mod):
     h.ok(f"박스를 전부 비우면 즉시 잠금 풀고 남은 저울로 다음 조합 {remaining} 을 찾음")
 
     window.locked_combo = None
-    window.rejected_combos.clear()
 
     # 통신이 끊겨 전 채널 ERR 이 된 것은 박스가 아니다.
     before = len(rows)
@@ -173,7 +160,6 @@ def check_topup_production(window, main_mod):
     window.target_weight, window.min_comb, window.max_comb, window.tolerance = 2050, 3, 4, 50
     window.current_preset_index = None
     window.locked_combo = None
-    window.rejected_combos.clear()
     window.toggle_topup_mode()
     window.on_data_received(TOPUP)
     shown = window.combo_val.text()
@@ -199,7 +185,6 @@ def check_calibration_led_gate(window, main_ui, sent):
     지금 어느 저울을 보정 중인지 헷갈린다.
     """
     window.locked_combo = None
-    window.rejected_combos.clear()
     window.cal_dialog = main_ui.CalibrationDialog(window, is_dark_mode=True, ref_weight=430)
     window.cal_dialog.show()
 
@@ -227,7 +212,6 @@ def check_clock_marking(window, main_mod):
     def record_one():
         W = [1000, 1050, 1020, 1030, 990, 0, 0, 0, 0, 0, 0, 0]
         window.locked_combo = None
-        window.rejected_combos.clear()
         window.target_weight, window.min_comb, window.max_comb = 2050, 2, 2
         window.on_data_received(W)
         emptied = list(W)
@@ -263,7 +247,6 @@ def check_clock_marking(window, main_mod):
 
 def check_shortfall(window):
     window.locked_combo = None
-    window.rejected_combos.clear()
     window.target_weight = 9000
     window.on_data_received([1000, 1050, 1020, 1030, 990, 0, 0, 0, 0, 0, 0, 0])
     assert window.combo_val.text() == "조합실패"

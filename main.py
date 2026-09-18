@@ -106,7 +106,7 @@ def best_combination(items, target, min_c, max_c, tolerance, excluded=()):
     """목표무게를 넘되 초과분이 tolerance 이내인 조합 중 가장 근접한 것.
 
     items:    [(1-based 저울번호, 무게), ...]
-    excluded: 제외할 저울번호 집합들. 조작자가 거절한 조합을 다시 내놓지 않기 위함.
+    excluded: 제외할 저울번호 조합(frozenset)들.
     반환:     ComboResult(조합 튜플|None, 합계, 목표 미달 최대 합계|None)
 
     near_total 은 조합 실패 시 "얼마나 모자란지" 화면에 알려주기 위한 참고값이며
@@ -436,9 +436,6 @@ class MainApp(SmartSorterUI):
         # 포도가 자리 잡으며 늘어난 무게가 SETTLE_STABLE_SEC 만큼 유지되면
         # 조합무게에 반영한다. 손으로 잠깐 누른 순간값은 이걸로 걸러진다.
         self._settle_candidate = None
-        # 조작자가 조합무게 카드를 눌러 거절한 조합들. 저울 구성이 바뀌면 비운다.
-        self.rejected_combos = set()
-        self._occupancy = None
 
         # 시작 준비 절차 상태
         self.startup_active = False
@@ -502,7 +499,6 @@ class MainApp(SmartSorterUI):
         self.locked_combo = None
         self.locked_sum = 0
         self.original_locked_indices = []
-        self.rejected_combos.clear()
         self.show_message("저울 준비중\n접시를 비우고 손을 떼세요")
         self._play_startup_frame()
 
@@ -948,32 +944,24 @@ class MainApp(SmartSorterUI):
         QTimer.singleShot(300, refill)
 
     def force_unlock(self):
-        """조합무게 카드 터치 = 이 조합 거절, 다른 조합 요청.
+        """조합무게 카드 터치 = 잠금을 풀고 최적 조합을 다시 찾는다.
 
-        저울 무게가 그대로면 탐색은 결정적이라 같은 답이 다시 나온다.
-        방금 보여준 조합을 거절 목록에 넣어야 실제로 차선이 나온다.
+        저울 구성이 그대로면 지금 조합이 유일한 최적일 수 있고, 그러면
+        같은 조합이 다시 나온다 — 그것도 정상이다.
         """
-        rejected = frozenset(self.original_locked_indices)
-
         self.locked_combo = None
         self.locked_sum = 0
         self.original_locked_indices = []
 
         if self.in_simulation():
             # 시뮬레이션에서는 저울을 새로 채워 다양한 상황을 만들어 본다.
-            self.rejected_combos.clear()
             for i in range(LOADCELL_COUNT):
                 self.serial_thread.sim_weights[i] = random.randint(500, 1000)
             self.serial_thread.data_received.emit(list(self.serial_thread.sim_weights))
             self.show_message("모든 저울의 무게가 무작위로 변경되었습니다.", 1000)
             return
 
-        if rejected:
-            self.rejected_combos.add(rejected)
-            self.show_message("다른 조합을 찾습니다.", 900)
-        else:
-            self.show_message("조합 연산 잠금이 해제되었습니다.", 900)
-
+        self.show_message("조합을 다시 찾습니다.", 900)
         self.on_data_received(self.raw_weights)
 
     def on_tray_clicked(self, idx):
@@ -1472,13 +1460,6 @@ class MainApp(SmartSorterUI):
 
         self.weights = calibrated_weights
 
-        # 저울 구성(어디에 뭐가 올라가 있는지)이 바뀌면 거절 이력은 의미가 없다.
-        # 무게 자체는 노이즈로 계속 흔들리므로 '올려져 있는지'만 본다.
-        occupancy = tuple(w > 0 for w in self.weights)
-        if occupancy != self._occupancy:
-            self._occupancy = occupancy
-            self.rejected_combos.clear()
-
         if self.cal_dialog and self.cal_dialog.isVisible():
             self.update_cal_dialog_ui()
 
@@ -1605,14 +1586,7 @@ class MainApp(SmartSorterUI):
 
         current_target = target - topup_sum if self.is_topup_mode else target
 
-        result = best_combination(valid_items, current_target, min_c, max_c,
-                                  self.tolerance, self.rejected_combos)
-
-        # 거절 이력 때문에 후보가 하나도 안 남으면 이력을 비우고 처음부터 순환한다.
-        if result.combo is None and self.rejected_combos:
-            self.rejected_combos.clear()
-            result = best_combination(valid_items, current_target, min_c, max_c,
-                                      self.tolerance)
+        result = best_combination(valid_items, current_target, min_c, max_c, self.tolerance)
 
         if result.combo is not None:
             self.locked_combo = result.combo
