@@ -115,6 +115,24 @@ def check_transient_err(window):
     assert window.weights[0] == 1000, window.weights[0]
     h.ok("깨진 값은 0 이 아니라 직전 값으로 유지")
 
+    # 숫자로 왔어도 물리적으로 불가능한 값(현장 실측 -67g, -25,139g)은 '비움'이 아니다.
+    for spike in (-67, -25139, 99999):
+        glitch_num = list(W)
+        glitch_num[taken[0] - 1] = spike
+        packet(glitch_num)
+        packet(W)
+        selected = sorted(item[0] for item in (window.locked_combo or []))
+        assert selected == taken, f"{spike}g 로 튄 값에 선택이 풀림: {taken} -> {selected}"
+    h.ok("불가능한 값(-67g, -25,139g, 99,999g)도 직전 값으로 메워 조합 유지")
+
+    # 영점 직후 흔한 작은 음수는 정상값이다.
+    small = list(W)
+    small[8] = -3
+    packet(small)
+    assert window.weights[8] == -3, window.weights[8]
+    assert serial._err_streak[8] == 0, "영점 근처 작은 음수를 깨진 값으로 봄"
+    h.ok("영점 근처 작은 음수(-3g)는 정상값으로 통과")
+
     # 기준(ERR_HOLD_PACKETS)을 넘겨 계속되면 진짜 고장이므로 ERR 로 보여야 한다.
     import main
     for _ in range(main.ERR_HOLD_PACKETS + 1):

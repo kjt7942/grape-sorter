@@ -44,7 +44,10 @@ REFILL_WEIGHT_THRESHOLD = 300     # 잠금 중 비워진 저울에 이 이상 �
 SETTLE_STABLE_SEC = 0.5           # 조합무게 반영 전 같은 값이 유지돼야 하는 시간(순간적으로 누른 값 방지).
 LOCK_STABLE_SEC = 0.5             # 새 조합을 잠글 때 각 저울 무게가 WEIGHT_STEP 안에서 유지돼야 하는 시간.
                                   # 송이를 올리는 중이거나 손이 닿은 순간값으로 조합이 잠기는 것을 막는다.
-ERR_HOLD_PACKETS = 5             # 연속 ERR 이 이만큼 이하면 직전 정상값을 유지한다(10Hz 기준 0.5초).
+PLAUSIBLE_MIN_G = -50             # 접시가 있는 저울은 영점 뒤 이보다 낮게 나올 수 없다. 더 낮으면 깨진 읽기다
+                                  # (실측: 빈 5번 저울에 -67g, -25,139g 이 연달아 찍힘).
+PLAUSIBLE_MAX_G = 25000           # 가장 큰 20kg 로드셀도 넘을 수 없는 값.
+ERR_HOLD_PACKETS = 5            # 연속 ERR 이 이만큼 이하면 직전 정상값을 유지한다(10Hz 기준 0.5초).
                                   # 아두이노도 5회 연속 실패부터 채널을 격리하므로 기준을 맞춘다.
 
 # 가짜 무게를 만드는 시뮬레이션은 개발용이다. 현장 기기(라즈베리파이)에서
@@ -361,6 +364,8 @@ class SerialThread(QThread):
                 value = int(p.strip())
             except ValueError:
                 value = None    # "ERR" 또는 깨진 값
+            if value is not None and not (PLAUSIBLE_MIN_G <= value <= PLAUSIBLE_MAX_G):
+                value = None    # 숫자로 왔지만 물리적으로 나올 수 없는 값도 깨진 읽기다.
             weights.append(self._hold_transient_err(i, value))
         self.data_received.emit(weights)
 
