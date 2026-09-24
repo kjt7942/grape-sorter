@@ -198,26 +198,43 @@ void performTare() {
     isIsolated[i] = false;
   }
 
-  long sum[LOADCELL_COUNT] = {0};
+  // 단순 평균은 깨진 값 하나에 영점 전체가 수 kg 틀어진다(현장 로그: 부팅 영점에서
+  // 5번 -3774g, 6번 -2005g). 채널별로 모아 정렬한 뒤 위아래 TARE_TRIM 개씩 버린다.
+  const int TARE_READS = 10;
+  const int TARE_TRIM = 2;
+  static long samples[LOADCELL_COUNT][TARE_READS];
   int validReads[LOADCELL_COUNT] = {0};
-  
-  for(int k = 0; k < 10; k++) {
+
+  for(int k = 0; k < TARE_READS; k++) {
     long rawValues[LOADCELL_COUNT] = {0};
     bool successArray[LOADCELL_COUNT] = {false};
-    
+
     readSensors(rawValues, successArray);
 
     for(int i = 0; i < LOADCELL_COUNT; i++) {
       if (successArray[i]) {
-        sum[i] += rawValues[i];
-        validReads[i]++;
+        samples[i][validReads[i]++] = rawValues[i];
       }
     }
     delay(50);
   }
-  
+
   for(int i = 0; i < LOADCELL_COUNT; i++) {
-    if(validReads[i] > 0) offsets[i] = sum[i] / validReads[i];
+    int n = validReads[i];
+    if (n > 0) {
+      long *s = samples[i];
+      for (int m = 0; m < n - 1; m++) {
+        for (int q = m + 1; q < n; q++) {
+          if (s[m] > s[q]) { long t = s[m]; s[m] = s[q]; s[q] = t; }
+        }
+      }
+      // 표본이 적으면(대부분 실패한 채널) 버릴 여유가 없으니 가운데 값만 쓴다.
+      int lo = (n > 2 * TARE_TRIM) ? TARE_TRIM : (n - 1) / 2;
+      int hi = n - lo;
+      long sum = 0;
+      for (int m = lo; m < hi; m++) sum += s[m];
+      offsets[i] = sum / (hi - lo);
+    }
     for(int j = 0; j < SAMPLE_SIZE; j++) weightBuffer[i][j] = 0;
   }
 
@@ -237,33 +254,32 @@ void performTare() {
 // --- 🌟 개선된 초고속 동시 읽기 함수 (60us 수면 버그 원천 차단) 🌟 ---
 void readSensors(long* targetArray, bool* successArray) {
   unsigned long startTime = millis();
-  bool allReady = false;
-  
-  // 센서들이 준비될 때까지 대기
-  while (millis() - startTime < 150) { 
-    allReady = true;
+  bool ready[LOADCELL_COUNT];
+
+  // 센서들이 준비될 때까지 대기. 판정은 한 번 훑은 결과(ready)로만 한다.
+  // 예전에는 대기가 끝난 뒤 핀을 다시 읽어 성공 여부를 정했는데, 그 사이
+  // 다음 변환이 끝나는 칩은 DOUT 이 잠깐 HIGH 로 튀어 ERR 로 찍혔다
+  // (실측 저울당 약 30초에 1회).
+  while (true) {
+    bool allReady = true;
     for (int i = 0; i < LOADCELL_COUNT; i++) {
-      if (!isIsolated[i] && digitalRead(DT_PINS[i]) == HIGH) { 
-        allReady = false; 
-        break; 
-      }
+      ready[i] = isIsolated[i] || digitalRead(DT_PINS[i]) == LOW;
+      if (!ready[i]) allReady = false;
     }
-    if (allReady) break;
+    if (allReady || millis() - startTime >= 150) break;
   }
 
-  // 성공적으로 준비된 녀석들 기록
   for (int i = 0; i < LOADCELL_COUNT; i++) {
-    if (!isIsolated[i] && digitalRead(DT_PINS[i]) == LOW) {
-      successArray[i] = true;
-    } else {
-      successArray[i] = false;
-    }
+    successArray[i] = !isIsolated[i] && ready[i];
   }
 
   long values[LOADCELL_COUNT] = {0};
-  
+
   // 24번의 펄스를 발생시켜 데이터를 동시에 빨아들임
   for (int i = 0; i < 24; i++) {
+    // SCK 가 60us 넘게 HIGH 면 HX711 이 절전으로 빠진다. 그 사이에 타이머/시리얼
+    // 인터럽트가 끼어들지 않도록 HIGH 구간만 막는다(수 us라 수신 손실 없음).
+    noInterrupts();
     digitalWrite(SCK_PINS[0], HIGH);
     digitalWrite(SCK_PINS[1], HIGH);
     digitalWrite(SCK_PINS[2], HIGH);
@@ -271,6 +287,7 @@ void readSensors(long* targetArray, bool* successArray) {
     digitalWrite(SCK_PINS[0], LOW); // 2. 🚨 즉시 끈다! (수면 모드 절대 진입 불가)
     digitalWrite(SCK_PINS[1], LOW);
     digitalWrite(SCK_PINS[2], LOW);
+    interrupts();
 
     // 3. 전기가 꺼진 안전한 상태에서 느긋하게 12개의 핀을 다 읽는다!
     int b0  = digitalRead(DT_PINS[0]);
@@ -302,9 +319,11 @@ void readSensors(long* targetArray, bool* successArray) {
   }
   
   // 마지막 25번째 펄스 (다음 데이터를 위해 필수)
+  noInterrupts();
   digitalWrite(SCK_PINS[0], HIGH); digitalWrite(SCK_PINS[1], HIGH); digitalWrite(SCK_PINS[2], HIGH);
   delayMicroseconds(1);
   digitalWrite(SCK_PINS[0], LOW); digitalWrite(SCK_PINS[1], LOW); digitalWrite(SCK_PINS[2], LOW);
+  interrupts();
   delayMicroseconds(1);
 
   // 음수 처리 등 최종 마무리
