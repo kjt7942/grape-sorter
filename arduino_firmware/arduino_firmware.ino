@@ -329,8 +329,15 @@ void readSensors(long* targetArray, bool* successArray) {
   // 음수 처리 등 최종 마무리
   for (int i = 0; i < LOADCELL_COUNT; i++) {
     if (successArray[i]) {
-      if (values[i] & 0x800000) values[i] |= 0xFF000000; 
-      targetArray[i] = values[i];
+      if (values[i] & 0x800000) values[i] |= 0xFF000000;
+      // 원시값 0(비트 전부 0)과 포화값은 실제 무게가 아니라 깨진 읽기다. 현장 실측에서
+      // 빈 저울이 가끔 원시값 0을 두 번 연달아 보내, 필터를 뚫고 '-영점/3' g
+      // (9번 -228g, 4번 -75g 등)으로 튀었다. 실패로 처리해 필터에 넣지 않는다.
+      if (values[i] == 0 || values[i] == 0x7FFFFFL || values[i] == -0x800000L) {
+        successArray[i] = false;
+      } else {
+        targetArray[i] = values[i];
+      }
     }
   }
 }
