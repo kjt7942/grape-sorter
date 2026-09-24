@@ -9,6 +9,7 @@ import json
 import csv
 import shutil
 import logging
+import codecs
 import collections
 from collections import deque
 from datetime import datetime
@@ -41,6 +42,8 @@ CLOCK_UNSYNCED_MARK = "(시각미확인)"
 WEIGHT_STEP = 5                   # 1g 단위는 노이즈로 수시로 바뀌어 5g 단위로 반올림해 표시/연산한다.
 REFILL_WEIGHT_THRESHOLD = 300     # 잠금 중 비워진 저울에 이 이상 다시 찍히면 새 송이로 보고 선택 해제한다.
 SETTLE_STABLE_SEC = 0.5           # 조합무게 반영 전 같은 값이 유지돼야 하는 시간(순간적으로 누른 값 방지).
+ERR_HOLD_PACKETS = 5              # 연속 ERR 이 이만큼 이하면 직전 정상값을 유지한다(10Hz 기준 0.5초).
+                                  # 아두이노도 5회 연속 실패부터 채널을 격리하므로 기준을 맞춘다.
 
 # 가짜 무게를 만드는 시뮬레이션은 개발용이다. 현장 기기(라즈베리파이)에서
 # 가짜 데이터가 화면에 뜨면 조작자가 정상으로 오인하므로 원천 차단한다.
@@ -180,10 +183,22 @@ class SerialThread(QThread):
         self.running = True
         self.sim_weights = [0] * LOADCELL_COUNT
         self.had_connection = False   # 한 번이라도 실제 장치에 붙었는지
-        self._buffer = ""
         self._last_connect_try = 0.0
         self._sim_seeded = False
         self._silent_reads = 0
+        self._clear_rx()
+        self._reset_err_hold()
+
+    def _clear_rx(self):
+        self._buffer = ""
+        # 조각마다 따로 디코딩하면 조각 경계에 걸린 한글(3바이트)이 깨져 버려져
+        # '[SYSTEM] 영점 조절 완료' 를 놓친다. 이어지는 바이트를 기억하는 디코더를 쓴다.
+        self._decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+
+    def _reset_err_hold(self):
+        # 채널별 마지막 정상값과 연속 ERR 횟수. 연결이 바뀌면 이전 값을 믿을 수 없으므로 비운다.
+        self._last_good = [None] * LOADCELL_COUNT
+        self._err_streak = [0] * LOADCELL_COUNT
 
     # --- 연결 관리 -------------------------------------------------------
     def _try_connect(self):
@@ -199,7 +214,8 @@ class SerialThread(QThread):
                 self.serial_port = serial.Serial(p, self.baudrate, timeout=1)
             except Exception:
                 continue
-            self._buffer = ""
+            self._clear_rx()
+            self._reset_err_hold()
             log.info("[%s] 아두이노 하드웨어 연결 성공", p)
             self.had_connection = True
             self.is_simulation.emit(False, False)
@@ -215,7 +231,7 @@ class SerialThread(QThread):
         except Exception:
             pass
         self.serial_port = None
-        self._buffer = ""
+        self._clear_rx()
         self.is_simulation.emit(True, self.had_connection)
 
     # --- 수신 처리 -------------------------------------------------------
@@ -234,8 +250,10 @@ class SerialThread(QThread):
                 self._drop_connection("8초간 데이터 없음")
             return
         self._silent_reads = 0
+        self._feed(chunk)
 
-        self._buffer += chunk.decode('utf-8', errors='ignore')
+    def _feed(self, chunk):
+        self._buffer += self._decoder.decode(chunk)
         self._consume_buffer()
 
         # 잘린 쓰레기 데이터가 무한히 쌓이지 않도록 상한을 둔다.
@@ -272,6 +290,7 @@ class SerialThread(QThread):
                 self.tare_offsets_received.emit(offsets)
 
         if "[SYSTEM] 영점 조절 완료" in buffer:
+            self._reset_err_hold()   # 영점 전 무게로 ERR 을 메우면 안 된다.
             self.system_message.emit("TARE_DONE")
             buffer = buffer.replace("[SYSTEM] 영점 조절 완료! 정상 가동 재개.", "")
             buffer = buffer.replace("[SYSTEM] 영점 조절 완료", "")
@@ -332,18 +351,32 @@ class SerialThread(QThread):
 
     def parse_packet(self, packet):
         parts = packet.split(',')
-        if len(parts) == LOADCELL_COUNT:
-            weights = []
-            for p in parts:
-                p = p.strip()
-                if p == "ERR":
-                    weights.append(-1)
-                else:
-                    try:
-                        weights.append(int(p))
-                    except ValueError:
-                        weights.append(0)
-            self.data_received.emit(weights)
+        if len(parts) != LOADCELL_COUNT:
+            return
+        weights = []
+        for i, p in enumerate(parts):
+            try:
+                value = int(p.strip())
+            except ValueError:
+                value = None    # "ERR" 또는 깨진 값
+            weights.append(self._hold_transient_err(i, value))
+        self.data_received.emit(weights)
+
+    def _hold_transient_err(self, i, value):
+        """HX711 이 읽기 순간 준비가 안 돼 한 번씩 ERR 이 섞여 온다(실측 저울당 약 30초에 1회).
+
+        그대로 -1 을 넘기면 잠긴 조합이 '저울을 비웠다'로 오인해, 송이가 그대로
+        있어도 다음 틱에 '새 송이'로 보고 선택을 풀어버린다. 짧은 ERR 은 직전
+        정상값으로 메우고, ERR_HOLD_PACKETS 를 넘게 이어질 때만 -1 로 알린다.
+        """
+        if value is not None:
+            self._last_good[i] = value
+            self._err_streak[i] = 0
+            return value
+        self._err_streak[i] += 1
+        if self._last_good[i] is not None and self._err_streak[i] <= ERR_HOLD_PACKETS:
+            return self._last_good[i]
+        return -1
 
     # --- 송신 ------------------------------------------------------------
     def _write(self, payload, what):

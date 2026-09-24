@@ -35,6 +35,45 @@ def check_sequence(window, sent):
     h.ok("영점 완료 후 사용 가능 상태로 복귀")
 
 
+def check_tare_done_split(window):
+    """영점 완료 문장이 시리얼 읽기 조각 경계에서 잘려 와도 놓치면 안 된다.
+
+    조각마다 따로 디코딩하던 시절, 경계에 걸린 한글 바이트가 버려져
+    '[SYSTEM] 영점 조절 완료' 가 깨졌다. 현장 로그에 '아두이노가 영점 완료를
+    알리지 않음' 이 거의 매일 남은 원인. 가능한 모든 경계에서 확인한다.
+    """
+    serial = window.serial_thread
+    firmware_output = (
+        "\n[SYSTEM] 영점 조절(TARE) 및 에러 초기화 시작...\r\n"
+        "[TARE] 76,270,0,221,567,487,563,492,684,256,617,667\r\n"
+        "[SYSTEM] 영점 조절 완료! 정상 가동 재개.\r\n"
+        "<0, 0, ERR, 3, 2, 1, 3, 0, 0, 3, 0, 0>\r\n"
+    ).encode("utf-8")
+
+    messages, offsets = [], []
+    # 화면 쪽 처리(마무리 LED 타이머 등)가 다음 검사에 끼어들지 않게 잠시 떼어 둔다.
+    serial.system_message.disconnect(window.on_system_message)
+    serial.tare_offsets_received.disconnect(window.on_tare_offsets)
+    serial.system_message.connect(messages.append)
+    serial.tare_offsets_received.connect(offsets.append)
+    try:
+        for cut in range(1, len(firmware_output)):
+            messages.clear()
+            offsets.clear()
+            serial._clear_rx()
+            serial._feed(firmware_output[:cut])
+            serial._feed(firmware_output[cut:])
+            assert messages.count("TARE_DONE") == 1, f"{cut}바이트에서 잘리면 영점 완료를 놓침"
+            assert len(offsets) == 1, f"{cut}바이트에서 잘리면 [TARE] 를 놓침"
+    finally:
+        serial.system_message.disconnect(messages.append)
+        serial.tare_offsets_received.disconnect(offsets.append)
+        serial.system_message.connect(window.on_system_message)
+        serial.tare_offsets_received.connect(window.on_tare_offsets)
+        serial._clear_rx()
+    h.ok(f"영점 완료 문장이 어느 바이트에서 잘려 와도 인식 ({len(firmware_output) - 1}가지 경계)")
+
+
 def check_bad_tare(window):
     """접시에 물건이 올려진 채 영점을 잡으면 조용히 미달 박스가 나간다."""
     base = [250] * 12
@@ -142,6 +181,7 @@ def main():
     window, sent = h.new_app(main_mod)
 
     check_sequence(window, sent)
+    check_tare_done_split(window)
     check_bad_tare(window)
     check_arduino_restart(window)
     check_calibration(window, main_ui, sent)

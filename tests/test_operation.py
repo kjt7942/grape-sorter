@@ -81,6 +81,58 @@ def check_locked_sum_tracks_settling(window):
     window.locked_combo = None
 
 
+def check_transient_err(window):
+    """HX711 타이밍 탓에 한 번씩 섞여 오는 ERR 이 잠긴 조합을 풀면 안 된다.
+
+    실측(2026-09-24)에서 저울당 약 30초에 1회 단발 ERR 이 왔다. 이게 -1 로
+    전달되면 '비움'으로 오인되고, 다음 틱의 정상값을 '새 송이'로 보고 선택을 푼다.
+    """
+    serial = window.serial_thread
+    serial._reset_err_hold()
+
+    def packet(values):
+        serial.parse_packet(", ".join("ERR" if v == h.ERR else str(v) for v in values))
+
+    W = [1000, 1050, 1020, 1030, 990, 0, 0, 0, 0, 0, 0, 0]
+    window.target_weight, window.min_comb, window.max_comb, window.tolerance = 2050, 2, 2, 50
+    window.current_preset_index = None
+    window.locked_combo = None
+    packet(W)
+    taken = sorted(window.original_locked_indices)
+    assert taken, "첫 조합이 없음"
+
+    glitch = list(W)
+    glitch[taken[0] - 1] = h.ERR
+    packet(glitch)
+    packet(W)
+    selected = sorted(item[0] for item in (window.locked_combo or []))
+    assert selected == taken, f"단발 ERR 로 선택이 풀림: {taken} -> {selected}"
+    assert window.weights[taken[0] - 1] > 0
+    h.ok("단발 ERR 은 직전 값으로 메워 잠긴 조합 유지")
+
+    # 깨진 숫자도 0(비움)이 아니라 ERR 과 똑같이 다룬다.
+    serial.parse_packet(", ".join(["1x00"] + [str(v) for v in W[1:]]))
+    assert window.weights[0] == 1000, window.weights[0]
+    h.ok("깨진 값은 0 이 아니라 직전 값으로 유지")
+
+    # 기준(ERR_HOLD_PACKETS)을 넘겨 계속되면 진짜 고장이므로 ERR 로 보여야 한다.
+    import main
+    for _ in range(main.ERR_HOLD_PACKETS + 1):
+        packet(glitch)
+    assert window.weights[taken[0] - 1] == h.ERR, window.weights[taken[0] - 1]
+    assert "ERR" in window.tray_weight_labels[taken[0] - 1].text()
+    h.ok(f"ERR 이 {main.ERR_HOLD_PACKETS}회를 넘기면 에러로 표시")
+
+    # 한 번도 정상값이 없던 채널(미배선)은 처음부터 ERR.
+    serial._reset_err_hold()
+    packet([h.ERR] + W[1:])
+    assert window.weights[0] == h.ERR
+    h.ok("미배선 채널은 처음부터 ERR")
+
+    serial._reset_err_hold()
+    window.locked_combo = None
+
+
 def check_production(window, main_mod):
     """일부만 비우면 선택을 유지하고, 잠긴 저울 전부가 비면 즉시 기록하고
     잠금을 풀어 바로 다음 조합을 찾는다."""
@@ -318,6 +370,7 @@ def main():
 
     check_recombine(window)
     check_locked_sum_tracks_settling(window)
+    check_transient_err(window)
     check_production(window, main_mod)
     check_topup_production(window, main_mod)
     check_clock_marking(window, main_mod)
