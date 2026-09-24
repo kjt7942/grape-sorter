@@ -133,6 +133,46 @@ def check_transient_err(window):
     window.locked_combo = None
 
 
+def check_lock_waits_for_stable(window, main_mod):
+    """송이를 올리는 도중의 순간값으로 조합이 잠기면 안 된다."""
+    main_mod.LOCK_STABLE_SEC = 0.5
+    window._stable_ref = [None] * 12
+    try:
+        W = [1000, 1050, 1020, 1030, 990, 0, 0, 0, 0, 0, 0, 0]
+        window.target_weight, window.min_comb, window.max_comb, window.tolerance = 2050, 2, 2, 50
+        window.current_preset_index = None
+        window.locked_combo = None
+        window.on_data_received(W)
+        assert window.locked_combo is None, "무게가 막 들어온 순간 조합이 잠김"
+        h.wait(600)
+        window.on_data_received(W)
+        assert window.locked_combo is not None, "안정된 뒤에도 잠기지 않음"
+        h.ok("무게가 0.5초 유지된 뒤에야 조합을 잠금")
+
+        # 1g 노이즈(5g 반올림 경계에서 1000 <-> 1005 로 오가는 것)는 안정으로 본다.
+        window.locked_combo = None
+        noisy = list(W)
+        noisy[0] = 1003     # 반올림 1005
+        window.on_data_received(noisy)
+        assert window.locked_combo is not None, "5g 이내 흔들림을 불안정으로 봄"
+        h.ok("5g 이내 흔들림은 안정으로 취급")
+
+        # 올리는 중인 저울은 빼고, 이미 자리 잡은 저울로 조합한다.
+        # 목표 2,060g: 자리 잡은 저울끼리는 2번+3번(2,070g)이 최선이지만, 6번의
+        # 순간값을 받아주면 4번+6번(2,060g)이 잠긴다.
+        window.locked_combo = None
+        window.target_weight = 2060
+        loading = list(W)
+        loading[5] = 1030   # 6번에 새 송이가 막 올라옴
+        window.on_data_received(loading)
+        taken = [item[0] for item in (window.locked_combo or [])]
+        assert taken and 6 not in taken, f"올리는 중인 저울이 조합에 들어감: {taken}"
+        h.ok(f"올리는 중인 저울은 제외하고 자리 잡은 저울로 조합 {taken}")
+    finally:
+        main_mod.LOCK_STABLE_SEC = 0
+        window.locked_combo = None
+
+
 def check_production(window, main_mod):
     """일부만 비우면 선택을 유지하고, 잠긴 저울 전부가 비면 즉시 기록하고
     잠금을 풀어 바로 다음 조합을 찾는다."""
@@ -371,6 +411,7 @@ def main():
     check_recombine(window)
     check_locked_sum_tracks_settling(window)
     check_transient_err(window)
+    check_lock_waits_for_stable(window, main_mod)
     check_production(window, main_mod)
     check_topup_production(window, main_mod)
     check_clock_marking(window, main_mod)

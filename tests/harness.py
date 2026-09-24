@@ -54,6 +54,10 @@ def boot():
     # 테스트가 네트워크를 건드리지 않도록.
     main.OTAThread.run = lambda self: None
 
+    # 대부분의 검사는 무게 한 틱으로 조합이 잠기는 것을 전제로 한다.
+    # 잠금 전 안정 판정은 test_operation 의 전용 검사에서 켜고 확인한다.
+    main.LOCK_STABLE_SEC = 0
+
     # 설정/실적/백업을 임시 폴더로 돌려 저장소를 더럽히지 않는다.
     tmp = tempfile.mkdtemp(prefix="grape-test-")
     main.SETTINGS_FILE = os.path.join(tmp, "settings.json")

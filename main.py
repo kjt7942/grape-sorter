@@ -42,7 +42,9 @@ CLOCK_UNSYNCED_MARK = "(시각미확인)"
 WEIGHT_STEP = 5                   # 1g 단위는 노이즈로 수시로 바뀌어 5g 단위로 반올림해 표시/연산한다.
 REFILL_WEIGHT_THRESHOLD = 300     # 잠금 중 비워진 저울에 이 이상 다시 찍히면 새 송이로 보고 선택 해제한다.
 SETTLE_STABLE_SEC = 0.5           # 조합무게 반영 전 같은 값이 유지돼야 하는 시간(순간적으로 누른 값 방지).
-ERR_HOLD_PACKETS = 5              # 연속 ERR 이 이만큼 이하면 직전 정상값을 유지한다(10Hz 기준 0.5초).
+LOCK_STABLE_SEC = 0.5             # 새 조합을 잠글 때 각 저울 무게가 WEIGHT_STEP 안에서 유지돼야 하는 시간.
+                                  # 송이를 올리는 중이거나 손이 닿은 순간값으로 조합이 잠기는 것을 막는다.
+ERR_HOLD_PACKETS = 5             # 연속 ERR 이 이만큼 이하면 직전 정상값을 유지한다(10Hz 기준 0.5초).
                                   # 아두이노도 5회 연속 실패부터 채널을 격리하므로 기준을 맞춘다.
 
 # 가짜 무게를 만드는 시뮬레이션은 개발용이다. 현장 기기(라즈베리파이)에서
@@ -469,6 +471,10 @@ class MainApp(SmartSorterUI):
         # 포도가 자리 잡으며 늘어난 무게가 SETTLE_STABLE_SEC 만큼 유지되면
         # 조합무게에 반영한다. 손으로 잠깐 누른 순간값은 이걸로 걸러진다.
         self._settle_candidate = None
+        # 저울별 안정 판정 기준값과 그 값에 들어온 시각. 기준값에서 WEIGHT_STEP 을
+        # 넘게 벗어나면 다시 잰다.
+        self._stable_ref = [None] * LOADCELL_COUNT
+        self._stable_since = [0.0] * LOADCELL_COUNT
 
         # 시작 준비 절차 상태
         self.startup_active = False
@@ -1492,6 +1498,7 @@ class MainApp(SmartSorterUI):
                 calibrated_weights.append(w)
 
         self.weights = calibrated_weights
+        self._track_stability()
 
         if self.cal_dialog and self.cal_dialog.isVisible():
             self.update_cal_dialog_ui()
@@ -1527,6 +1534,17 @@ class MainApp(SmartSorterUI):
             return
 
         self.find_best_combination()
+
+    def _track_stability(self):
+        now = time.time()
+        for i, w in enumerate(self.weights):
+            ref = self._stable_ref[i]
+            if ref is None or abs(w - ref) > WEIGHT_STEP:
+                self._stable_ref[i] = w
+                self._stable_since[i] = now
+
+    def _is_stable(self, idx):
+        return time.time() - self._stable_since[idx] >= LOCK_STABLE_SEC
 
     def find_best_combination(self):
         target = self.target_weight
@@ -1611,9 +1629,11 @@ class MainApp(SmartSorterUI):
                 self.render_combo_result(self.locked_combo, self.locked_sum, topup_sum)
                 return
 
+        # 잠글 조합은 무게가 자리 잡은 저울로만 만든다. 올리는 중인 저울은
+        # LOCK_STABLE_SEC 뒤 다음 틱부터 후보에 들어온다.
         valid_items = []
         for i, w in enumerate(self.weights):
-            if w > 0:
+            if w > 0 and self._is_stable(i):
                 if not (self.is_topup_mode and i in [0, 1, 6, 7]):
                     valid_items.append((i+1, w))
 
